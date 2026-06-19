@@ -29,6 +29,9 @@ export class UserEntity {
   @Column({ type: 'enum', enum: UserLocale, default: UserLocale.EN })
   locale: UserLocale;
 
+  @Column({ name: 'is_blocked', default: false })
+  isBlocked: boolean;
+
   @OneToMany(() => RefreshTokenEntity, (token) => token.user)
   refreshTokens: RefreshTokenEntity[];
 

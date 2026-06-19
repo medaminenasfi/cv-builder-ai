@@ -3,7 +3,7 @@ services:
     image: postgres:16
     container_name: cvbuilder-postgres
     ports:
-      - '5432:5432'
+      - '55432:5432'
     environment:
       POSTGRES_USER: cvbuilder
       POSTGRES_PASSWORD: cvbuilder

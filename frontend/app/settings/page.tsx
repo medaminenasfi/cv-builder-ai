@@ -2,20 +2,22 @@
 
 import { AppShell } from '@/components/layout/AppShell'
 import { PLAN_FEATURES } from '@/lib/mockData'
+import { useAuth } from '@/providers/AuthProvider'
 import { useState } from 'react'
-import { Mail, Lock, Globe, Zap } from 'lucide-react'
+import { Lock } from 'lucide-react'
 
 export default function SettingsPage() {
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<'account' | 'plan' | 'language'>(
     'account'
   )
   const [formData, setFormData] = useState({
-    name: 'Karim Mansouri',
-    email: 'demo@resumeai.com',
+    name: user?.email?.split('@')[0] ?? '',
+    email: user?.email ?? '',
   })
   const [language, setLanguage] = useState('en')
   const [region, setRegion] = useState('US')
-  const currentPlan = 'free'
+  const currentPlan = user?.plan ?? 'free'
 
   const tabs = [
     { id: 'account' as const, label: 'Account' },

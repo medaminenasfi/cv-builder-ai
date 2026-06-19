@@ -1,0 +1,9 @@
+{
+  "app": {
+    "title": "ResumeAI",
+    "dashboard": "My Resumes",
+    "templates": "Templates",
+    "login": "Sign in",
+    "register": "Create account"
+  }
+}

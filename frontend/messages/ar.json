@@ -1,0 +1,9 @@
+{
+  "app": {
+    "title": "ResumeAI",
+    "dashboard": "سيرتي الذاتية",
+    "templates": "القوالب",
+    "login": "تسجيل الدخول",
+    "register": "إنشاء حساب"
+  }
+}

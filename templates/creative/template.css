@@ -1,0 +1,11 @@
+body { font-family: 'Helvetica Neue', sans-serif; margin: 0; padding: 0; color: #333; }
+.cv-root { display: flex; min-height: 100vh; }
+.sidebar { width: 240px; background: linear-gradient(180deg, #7c3aed, #a855f7); color: #fff; padding: 32px 24px; }
+.sidebar h1 { font-size: 22px; margin: 0 0 8px; }
+.sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 24px; opacity: 0.8; }
+.email { font-size: 12px; opacity: 0.85; }
+main { flex: 1; padding: 32px 40px; }
+h2 { font-size: 14px; color: #7c3aed; text-transform: uppercase; letter-spacing: 1px; }
+.experience-item { margin-bottom: 16px; }
+.skill { display: inline-block; background: rgba(255,255,255,0.2); padding: 2px 8px; margin: 2px; font-size: 11px; border-radius: 4px; }
+[dir="rtl"] .cv-root { flex-direction: row-reverse; }

@@ -1,0 +1,9 @@
+{
+  "app": {
+    "title": "ResumeAI",
+    "dashboard": "Mes CV",
+    "templates": "Modèles",
+    "login": "Connexion",
+    "register": "Créer un compte"
+  }
+}

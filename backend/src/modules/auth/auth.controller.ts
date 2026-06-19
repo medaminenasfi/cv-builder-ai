@@ -78,7 +78,7 @@ export class AuthController {
   ): Promise<void> {
     const token = dto.refreshToken ?? req.cookies?.[REFRESH_COOKIE];
     await this.authService.logout(token);
-    res.clearCookie(REFRESH_COOKIE);
+    res.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
   }
 
   @Get('me')
@@ -95,7 +95,7 @@ export class AuthController {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/auth',
+      path: '/api/auth',
     });
   }
 }

@@ -1,0 +1,8 @@
+body { font-family: 'Times New Roman', serif; max-width: 850px; margin: 0 auto; padding: 40px; color: #1a1a1a; }
+.exec-header { background: #1e293b; color: #fff; padding: 32px; margin: -40px -40px 32px; }
+.exec-header h1 { margin: 0; font-size: 30px; }
+.subtitle { font-size: 16px; opacity: 0.9; margin-top: 8px; }
+.contact { font-size: 13px; opacity: 0.7; margin-top: 4px; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #1e293b; border-bottom: 2px solid #1e293b; padding-bottom: 4px; }
+.experience-item { margin-bottom: 18px; }
+.skill { display: inline-block; background: #f1f5f9; padding: 3px 10px; margin: 2px; font-size: 12px; }

@@ -1,22 +1,39 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Mail, Lock } from 'lucide-react'
-import { DEMO_USER } from '@/lib/mockData'
+import { useAuth } from '@/providers/AuthProvider'
+import { ApiError } from '@/lib/api'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState(DEMO_USER.email)
-  const [password, setPassword] = useState(DEMO_USER.password)
+  const { login } = useAuth()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [lang, setLang] = useState('en')
+  const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    alert(`Logging in with ${email}`)
+    setError(null)
+    setIsSubmitting(true)
+
+    try {
+      await login({ email, password })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message)
+      } else {
+        setError('Unable to sign in. Please try again.')
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-      {/* Language Switcher - Top Right */}
       <div className="absolute top-6 right-6 flex gap-2">
         {[
           { code: 'en', flag: '🇬🇧' },
@@ -25,6 +42,7 @@ export default function LoginPage() {
         ].map((item) => (
           <button
             key={item.code}
+            type="button"
             onClick={() => setLang(item.code)}
             className={`text-xs font-medium px-2 py-1 rounded transition-colors ${
               lang === item.code
@@ -37,10 +55,8 @@ export default function LoginPage() {
         ))}
       </div>
 
-      {/* Login Card */}
       <div className="w-full max-w-sm">
         <div className="bg-white rounded-2xl border border-purple-100 p-8 shadow-sm">
-          {/* Logo Section */}
           <div className="flex flex-col items-center mb-8">
             <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-600 to-purple-500 flex items-center justify-center text-white font-semibold text-lg mb-3">
               R
@@ -48,9 +64,13 @@ export default function LoginPage() {
             <h1 className="text-sm font-medium text-gray-900">ResumeAI</h1>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleLogin} className="space-y-4">
-            {/* Email Field */}
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                {error}
+              </div>
+            )}
+
             <div>
               <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                 Email
@@ -61,13 +81,13 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  required
                   className="w-full pl-9 pr-4 py-2 border border-purple-100 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-300 focus:border-purple-400 text-sm"
                   placeholder="you@example.com"
                 />
               </div>
             </div>
 
-            {/* Password Field */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                 Password
@@ -78,53 +98,32 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
                   className="w-full pl-9 pr-4 py-2 border border-purple-100 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-300 focus:border-purple-400 text-sm"
                   placeholder="••••••••"
                 />
               </div>
             </div>
 
-            {/* Sign In Button */}
             <button
               type="submit"
-              className="w-full mt-6 px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-500 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
+              disabled={isSubmitting}
+              className="w-full mt-6 px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-500 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-60"
             >
-              Sign in
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-purple-100"></div>
-            <span className="text-xs text-gray-500">or</span>
-            <div className="flex-1 h-px bg-purple-100"></div>
-          </div>
-
-          {/* Google Button */}
-          <button className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-purple-200 text-purple-700 text-sm font-medium rounded-lg hover:bg-purple-50 transition-colors">
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle" fill="currentColor" fontSize="16" fontWeight="bold">
-                G
-              </text>
-            </svg>
-            Continue with Google
-          </button>
-
-          {/* Register Link */}
           <div className="text-center mt-6">
             <span className="text-sm text-gray-600">
               Don&apos;t have an account?{' '}
-              <a href="/register" className="text-purple-600 font-medium hover:text-purple-700">
+              <Link href="/register" className="text-purple-600 font-medium hover:text-purple-700">
                 Register
-              </a>
+              </Link>
             </span>
           </div>
         </div>
-
-        {/* Demo Credentials Info */}
-        <p className="text-center text-xs text-gray-500 mt-6">
-          Demo credentials pre-filled • Use any email/password
-        </p>
       </div>
     </div>
   )

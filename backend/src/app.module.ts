@@ -5,28 +5,28 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthController } from './health.controller';
 import { AdminModule } from './modules/admin/admin.module';
+import { AIModule } from './modules/ai/ai.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BillingModule } from './modules/billing/billing.module';
+import { CVsModule } from './modules/cvs/cvs.module';
+import { ExportModule } from './modules/export/export.module';
+import { JobsModule } from './modules/jobs/jobs.module';
+import { ParserModule } from './modules/parser/parser.module';
+import { SharingModule } from './modules/sharing/sharing.module';
+import { TemplatesModule } from './modules/templates/templates.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env',
-    }),
-    ThrottlerModule.forRoot([
-      {
-        ttl: 60000,
-        limit: 100,
-      },
-    ]),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         host: configService.get<string>('DATABASE_HOST', 'localhost'),
-        port: configService.get<number>('DATABASE_PORT', 5432),
+        port: configService.get<number>('DATABASE_PORT', 55432),
         username: configService.get<string>('DATABASE_USER', 'cvbuilder'),
         password: configService.get<string>('DATABASE_PASSWORD', 'cvbuilder'),
         database: configService.get<string>('DATABASE_NAME', 'cvbuilder'),
@@ -38,13 +38,16 @@ import { UsersModule } from './modules/users/users.module';
     UsersModule,
     AuthModule,
     AdminModule,
+    TemplatesModule,
+    CVsModule,
+    ParserModule,
+    ExportModule,
+    AIModule,
+    JobsModule,
+    SharingModule,
+    BillingModule,
   ],
   controllers: [HealthController],
-  providers: [
-    {
-      provide: APP_GUARD,
-      useClass: ThrottlerGuard,
-    },
-  ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
