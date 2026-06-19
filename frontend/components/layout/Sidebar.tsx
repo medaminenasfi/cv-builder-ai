@@ -4,12 +4,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
-  FileText,
   Briefcase,
   Settings,
   LogOut,
   Palette,
-  Shield,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/providers/AuthProvider'
@@ -22,30 +20,10 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  {
-    id: 'dashboard',
-    icon: <LayoutDashboard size={20} />,
-    tooltip: 'Dashboard',
-    href: '/dashboard',
-  },
-  {
-    id: 'templates',
-    icon: <Palette size={20} />,
-    tooltip: 'Templates',
-    href: '/templates',
-  },
-  {
-    id: 'jobs',
-    icon: <Briefcase size={20} />,
-    tooltip: 'Job Match',
-    href: '/job-match',
-  },
-  {
-    id: 'settings',
-    icon: <Settings size={20} />,
-    tooltip: 'Settings',
-    href: '/settings',
-  },
+  { id: 'dashboard', icon: <LayoutDashboard size={20} />, tooltip: 'Dashboard', href: '/dashboard' },
+  { id: 'templates', icon: <Palette size={20} />, tooltip: 'Templates', href: '/templates' },
+  { id: 'jobs', icon: <Briefcase size={20} />, tooltip: 'Job Match', href: '/job-match' },
+  { id: 'settings', icon: <Settings size={20} />, tooltip: 'Settings', href: '/settings' },
 ]
 
 function getInitials(email: string): string {
@@ -55,7 +33,7 @@ function getInitials(email: string): string {
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, hasAdminSession } = useAuth()
   const [showTooltip, setShowTooltip] = useState<string | null>(null)
 
   const activeId =
@@ -86,7 +64,6 @@ export function Sidebar() {
               >
                 {item.icon}
               </Link>
-
               {showTooltip === item.id && (
                 <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
                   {item.tooltip}
@@ -94,36 +71,15 @@ export function Sidebar() {
               )}
             </div>
           ))}
-          {user?.role === 'admin' && (
-            <div className="relative">
-              <Link
-                href="/admin"
-                onMouseEnter={() => setShowTooltip('admin')}
-                onMouseLeave={() => setShowTooltip(null)}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-                  pathname.startsWith('/admin')
-                    ? 'bg-gradient-to-br from-purple-600 to-purple-500 text-white'
-                    : 'text-purple-300 hover:bg-slate-800'
-                }`}
-              >
-                <Shield size={20} />
-              </Link>
-              {showTooltip === 'admin' && (
-                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
-                  Admin
-                </div>
-              )}
-            </div>
-          )}
         </nav>
       </div>
 
-      <div className="flex flex-col items-center gap-4 border-t border-slate-800 pt-4 w-full px-2">
+      <div className="flex flex-col items-center gap-3 border-t border-slate-800 pt-4 w-full px-2">
         <div
           className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-semibold"
-          title={user?.email ?? 'User'}
+          title={user?.email ?? 'Not logged in'}
         >
-          {user ? getInitials(user.email) : 'U'}
+          {user ? getInitials(user.email) : '?'}
         </div>
 
         <button
@@ -133,19 +89,28 @@ export function Sidebar() {
         >
           <LogOut size={18} />
           <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100">
-            Logout
+            User logout
           </div>
         </button>
+
+        {hasAdminSession && (
+          <Link
+            href="/admin"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[9px] text-center text-purple-400 hover:text-purple-300 leading-tight"
+            title="Admin panel (separate session)"
+          >
+            Admin ↗
+          </Link>
+        )}
       </div>
 
       {user?.plan === 'free' && (
         <div className="absolute bottom-20 left-0 right-0 px-2 text-center">
           <div className="text-xs text-purple-300 font-medium mb-1">Free plan</div>
           <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-purple-600 to-purple-500"
-              style={{ width: '33%' }}
-            />
+            <div className="h-full bg-gradient-to-r from-purple-600 to-purple-500" style={{ width: '33%' }} />
           </div>
         </div>
       )}

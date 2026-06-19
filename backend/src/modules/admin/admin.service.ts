@@ -66,4 +66,32 @@ export class AdminService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  async getPlanStats() {
+    const [freeUsers, proUsers, totalUsers] = await Promise.all([
+      this.usersService.countByPlan(UserPlan.FREE),
+      this.usersService.countByPlan(UserPlan.PRO),
+      this.usersService.count(),
+    ]);
+
+    const payingUsers = proUsers;
+    const nonPayingUsers = freeUsers;
+    const conversionRate =
+      totalUsers > 0 ? Math.round((proUsers / totalUsers) * 1000) / 10 : 0;
+
+    // Placeholder MRR until Stripe is wired ($9.99/mo pro)
+    const estimatedMrr = proUsers * 9.99;
+
+    return {
+      totalUsers,
+      freeUsers,
+      proUsers,
+      payingUsers,
+      nonPayingUsers,
+      conversionRate,
+      estimatedMrr,
+      currency: 'USD',
+      timestamp: new Date().toISOString(),
+    };
+  }
 }

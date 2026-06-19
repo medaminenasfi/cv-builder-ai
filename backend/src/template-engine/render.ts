@@ -86,11 +86,15 @@ export function renderTemplate(
       ? `[dir="rtl"] { direction: rtl; text-align: right; } [dir="rtl"] .sidebar { order: 2; }`
       : '';
 
+  const previewBase =
+    'html,body{margin:0;padding:0;background:#ffffff;color:#111;min-height:100%;}';
+
   return `<!DOCTYPE html>
 <html lang="${options.locale ?? cvData.meta.locale}" dir="${direction}">
 <head>
   <meta charset="UTF-8"/>
-  <style>${css}\n${rtlCss}</style>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>${previewBase}\n${css}\n${rtlCss}</style>
 </head>
 <body>${body}</body>
 </html>`;

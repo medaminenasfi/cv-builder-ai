@@ -24,18 +24,15 @@ export function TopBar({ title, actions }: TopBarProps) {
       <div className="flex items-center gap-4">
         {actions}
 
-        <button
-          type="button"
-          className="p-2 text-gray-500 hover:text-gray-900 transition-colors"
-        >
+        <button type="button" className="p-2 text-gray-500 hover:text-gray-900 transition-colors">
           <Bell size={20} />
         </button>
 
         <div
           className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center text-white text-xs font-semibold"
-          title={user?.email}
+          title={user?.email ?? 'User account'}
         >
-          {user ? getInitials(user.email) : 'U'}
+          {user ? getInitials(user.email) : '?'}
         </div>
       </div>
     </header>

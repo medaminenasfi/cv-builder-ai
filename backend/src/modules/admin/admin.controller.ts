@@ -52,12 +52,31 @@ export class AdminController {
     return this.adminService.getStats();
   }
 
+  @Get('plans/stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Billing overview — free vs pro (paying) users' })
+  planStats() {
+    return this.adminService.getPlanStats();
+  }
+
   @Get('users')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth()
-  listUsers(@Query('page') page = '1', @Query('limit') limit = '20') {
-    return this.usersService.findAllPaginated(Number(page), Number(limit));
+  listUsers(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('plan') plan?: UserPlan,
+  ) {
+    const validPlan =
+      plan === UserPlan.FREE || plan === UserPlan.PRO ? plan : undefined;
+    return this.usersService.findAllPaginated(
+      Number(page),
+      Number(limit),
+      validPlan,
+    );
   }
 
   @Patch('users/:id/plan')

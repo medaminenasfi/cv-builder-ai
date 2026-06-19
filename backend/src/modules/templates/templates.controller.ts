@@ -31,6 +31,16 @@ export class TemplatesController {
   findActive() {
     return this.templatesService.findActive();
   }
+
+  @Get(':id/preview')
+  @ApiOperation({ summary: 'Preview an active template with sample CV data' })
+  async preview(@Param('id') id: string, @Query('rtl') rtl?: string) {
+    const template = await this.templatesService.findById(id);
+    if (!template?.isActive) {
+      throw new NotFoundException('Template not found');
+    }
+    return { html: this.templatesService.preview(template, rtl === 'true') };
+  }
 }
 
 @ApiTags('admin')

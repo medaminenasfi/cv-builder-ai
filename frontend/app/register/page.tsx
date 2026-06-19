@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Mail, Lock, User } from 'lucide-react'
+import { Mail, User } from 'lucide-react'
+import { PasswordInput } from '@/components/ui/password-input'
 import { useAuth } from '@/providers/AuthProvider'
 import { ApiError } from '@/lib/api'
 import type { UserLocale } from '@/lib/types/auth'
@@ -171,18 +172,14 @@ export default function RegisterPage() {
               <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                 Password
               </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                <input
-                  type="password"
+              <PasswordInput
                   value={formData.password}
                   onChange={(e) => handleChange('password', e.target.value)}
-                  className={`w-full pl-9 pr-4 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:border-purple-400 text-sm transition-colors ${
-                    errors.password ? 'border-red-300 focus:ring-red-200' : 'border-purple-100 focus:ring-purple-300'
-                  }`}
+                  inputClassName={
+                    errors.password ? 'border-red-300 focus:ring-red-200' : undefined
+                  }
                   placeholder="••••••••"
                 />
-              </div>
               {errors.password && <p className="text-xs text-red-600 mt-1">{errors.password}</p>}
             </div>
 
@@ -190,18 +187,14 @@ export default function RegisterPage() {
               <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                 Confirm Password
               </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                <input
-                  type="password"
+              <PasswordInput
                   value={formData.confirmPassword}
                   onChange={(e) => handleChange('confirmPassword', e.target.value)}
-                  className={`w-full pl-9 pr-4 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:border-purple-400 text-sm transition-colors ${
-                    errors.confirmPassword ? 'border-red-300 focus:ring-red-200' : 'border-purple-100 focus:ring-purple-300'
-                  }`}
+                  inputClassName={
+                    errors.confirmPassword ? 'border-red-300 focus:ring-red-200' : undefined
+                  }
                   placeholder="••••••••"
                 />
-              </div>
               {errors.confirmPassword && (
                 <p className="text-xs text-red-600 mt-1">{errors.confirmPassword}</p>
               )}

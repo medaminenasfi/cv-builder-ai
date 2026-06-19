@@ -1,12 +1,22 @@
 import {
-  clearTokens,
+  clearSession,
   getAccessToken,
   getRefreshToken,
-  setTokens,
+  setSession,
+  type SessionScope,
 } from './auth-storage';
 import type { AuthResponse } from './types/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api';
+
+function formatApiErrorMessage(data: unknown, status: number): string {
+  if (typeof data === 'object' && data !== null && 'message' in data) {
+    const msg = (data as { message: unknown }).message;
+    if (Array.isArray(msg)) return msg.join(', ');
+    if (typeof msg === 'string') return msg;
+  }
+  return `Request failed (${status})`;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -19,10 +29,10 @@ export class ApiError extends Error {
   }
 }
 
-let refreshPromise: Promise<string | null> | null = null;
+const refreshPromises: Partial<Record<SessionScope, Promise<string | null>>> = {};
 
-async function refreshAccessToken(): Promise<string | null> {
-  const refreshToken = getRefreshToken();
+async function refreshAccessToken(scope: SessionScope): Promise<string | null> {
+  const refreshToken = getRefreshToken(scope);
   if (!refreshToken) return null;
 
   const response = await fetch(`${API_URL}/auth/refresh`, {
@@ -33,34 +43,35 @@ async function refreshAccessToken(): Promise<string | null> {
   });
 
   if (!response.ok) {
-    clearTokens();
+    clearSession(scope);
     return null;
   }
 
   const data = (await response.json()) as AuthResponse;
-  setTokens(data.accessToken, data.refreshToken);
+  setSession(scope, data.accessToken, data.refreshToken, data.user.role);
   return data.accessToken;
 }
 
-async function getValidAccessToken(): Promise<string | null> {
-  const token = getAccessToken();
+async function getValidAccessToken(scope: SessionScope): Promise<string | null> {
+  const token = getAccessToken(scope);
   if (token) return token;
 
-  if (!refreshPromise) {
-    refreshPromise = refreshAccessToken().finally(() => {
-      refreshPromise = null;
+  if (!refreshPromises[scope]) {
+    refreshPromises[scope] = refreshAccessToken(scope).finally(() => {
+      delete refreshPromises[scope];
     });
   }
 
-  return refreshPromise;
+  return refreshPromises[scope] ?? null;
 }
 
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
+  scope: SessionScope = 'user',
   retry = true,
 ): Promise<T> {
-  const token = await getValidAccessToken();
+  const token = await getValidAccessToken(scope);
 
   const headers = new Headers(options.headers);
   if (!headers.has('Content-Type') && options.body) {
@@ -76,10 +87,10 @@ export async function apiFetch<T>(
     credentials: 'include',
   });
 
-  if (response.status === 401 && retry && getRefreshToken()) {
-    const newToken = await refreshAccessToken();
+  if (response.status === 401 && retry && getRefreshToken(scope)) {
+    const newToken = await refreshAccessToken(scope);
     if (newToken) {
-      return apiFetch<T>(path, options, false);
+      return apiFetch<T>(path, options, scope, false);
     }
   }
 
@@ -90,13 +101,7 @@ export async function apiFetch<T>(
     } catch {
       data = undefined;
     }
-    const message =
-      typeof data === 'object' &&
-      data !== null &&
-      'message' in data &&
-      typeof (data as { message: unknown }).message === 'string'
-        ? (data as { message: string }).message
-        : `Request failed (${response.status})`;
+    const message = formatApiErrorMessage(data, response.status);
     throw new ApiError(message, response.status, data);
   }
 
@@ -105,6 +110,11 @@ export async function apiFetch<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+/** Admin API calls — uses admin session only */
+export function apiFetchAdmin<T>(path: string, options: RequestInit = {}, retry = true) {
+  return apiFetch<T>(path, options, 'admin', retry);
 }
 
 export async function apiFetchPublic<T>(
@@ -129,18 +139,7 @@ export async function apiFetchPublic<T>(
     } catch {
       data = undefined;
     }
-    const message =
-      typeof data === 'object' &&
-      data !== null &&
-      'message' in data &&
-      Array.isArray((data as { message: unknown }).message)
-        ? ((data as { message: string[] }).message).join(', ')
-        : typeof data === 'object' &&
-            data !== null &&
-            'message' in data &&
-            typeof (data as { message: unknown }).message === 'string'
-          ? (data as { message: string }).message
-          : `Request failed (${response.status})`;
+    const message = formatApiErrorMessage(data, response.status);
     throw new ApiError(message, response.status, data);
   }
 

@@ -8,13 +8,28 @@ import { RefreshTokenEntity } from '../src/modules/auth/entities/refresh-token.e
 
 config({ path: path.join(__dirname, '../.env') });
 
-const TEMPLATES = [
-  { slug: 'modern', name: 'Modern', supportsRtl: false },
-  { slug: 'classic', name: 'Classic', supportsRtl: false },
-  { slug: 'minimal', name: 'Minimal', supportsRtl: true },
-  { slug: 'executive', name: 'Executive', supportsRtl: false },
-  { slug: 'creative', name: 'Creative', supportsRtl: true },
-];
+/** Default RTL support for known slugs; new folders default to false */
+const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl']);
+
+function titleFromSlug(slug: string): string {
+  return slug
+   .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+function discoverTemplates(root: string): { slug: string; name: string; supportsRtl: boolean }[] {
+  if (!fs.existsSync(root)) return [];
+
+  return fs
+    .readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => ({
+      slug: d.name,
+      name: titleFromSlug(d.name),
+      supportsRtl: RTL_SLUGS.has(d.name),
+    }));
+}
 
 async function seed() {
   const ds = new DataSource({
@@ -31,7 +46,14 @@ async function seed() {
   const repo = ds.getRepository(TemplateEntity);
   const root = path.join(__dirname, '../../templates');
 
-  for (const t of TEMPLATES) {
+  const templates = discoverTemplates(root);
+  if (templates.length === 0) {
+    console.warn('No template folders found in templates/');
+    await ds.destroy();
+    return;
+  }
+
+  for (const t of templates) {
     const dir = path.join(root, t.slug);
     const htmlPath = path.join(dir, 'template.html');
     const cssPath = path.join(dir, 'template.css');
@@ -65,7 +87,7 @@ async function seed() {
   }
 
   await ds.destroy();
-  console.log('Seed complete');
+  console.log(`Seed complete — ${templates.length} template(s) processed`);
 }
 
 seed().catch((e) => {

@@ -8,38 +8,45 @@ import {
   Users,
   Palette,
   BarChart3,
+  CreditCard,
   LogOut,
-  ArrowLeft,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 
 const NAV = [
-  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/templates', label: 'Templates', icon: Palette },
-  { href: '/admin/users', label: 'Users', icon: Users },
-  { href: '/admin/stats', label: 'Stats', icon: BarChart3 },
+  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, match: (p: string) => p === '/admin' || p === '/admin/dashboard' },
+  { href: '/admin/templates', label: 'Templates', icon: Palette, match: (p: string) => p.startsWith('/admin/templates') },
+  { href: '/admin/users', label: 'Users', icon: Users, match: (p: string) => p.startsWith('/admin/users') },
+  { href: '/admin/plans', label: 'Plans & Billing', icon: CreditCard, match: (p: string) => p.startsWith('/admin/plans') },
+  { href: '/admin/stats', label: 'Stats', icon: BarChart3, match: (p: string) => p.startsWith('/admin/stats') },
 ];
 
 export function AdminGuard({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, logout } = useAuth();
+  const { adminUser, isLoading, logoutAdmin, hasAdminSession, refreshAdmin } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!isLoading && user && user.role !== 'admin') {
-      router.replace('/dashboard');
+    if (isLoading) return;
+    if (!hasAdminSession) {
+      router.replace('/admin/login');
+      return;
     }
-    if (!isLoading && !user) {
-      router.replace('/login');
-    }
-  }, [user, isLoading, router]);
+    refreshAdmin();
+  }, [isLoading, hasAdminSession, router, refreshAdmin]);
 
-  if (isLoading || !user || user.role !== 'admin') {
+  if (isLoading || !hasAdminSession || !adminUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
         Loading admin...
       </div>
     );
+  }
+
+  if (adminUser.role !== 'admin') {
+    router.replace('/admin/login');
+    return null;
   }
 
   return (
@@ -48,15 +55,15 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
         <div className="p-4 border-b border-slate-800">
           <p className="text-xs text-purple-400 uppercase tracking-widest">ResumeAI</p>
           <p className="font-semibold text-sm">Admin Panel</p>
-          <p className="text-xs text-slate-400 truncate mt-1">{user.email}</p>
+          <p className="text-xs text-slate-400 truncate mt-1">{adminUser.email}</p>
         </div>
         <nav className="flex-1 p-3 space-y-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
+          {NAV.map(({ href, label, icon: Icon, match }) => (
             <Link
               key={href}
               href={href}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
-                pathname === href || (href !== '/admin' && pathname.startsWith(href))
+                match(pathname)
                   ? 'bg-purple-600 text-white'
                   : 'text-slate-300 hover:bg-slate-800'
               }`}
@@ -69,18 +76,20 @@ export function AdminGuard({ children }: { children: React.ReactNode }) {
         <div className="p-3 border-t border-slate-800 space-y-1">
           <Link
             href="/dashboard"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800"
           >
-            <ArrowLeft size={16} />
-            User app
+            <ExternalLink size={16} />
+            User app (new tab)
           </Link>
           <button
             type="button"
-            onClick={() => logout()}
+            onClick={() => logoutAdmin()}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800"
           >
             <LogOut size={16} />
-            Logout
+            Admin logout
           </button>
         </div>
       </aside>

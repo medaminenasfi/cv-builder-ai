@@ -4,7 +4,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { PLAN_FEATURES } from '@/lib/mockData'
 import { useAuth } from '@/providers/AuthProvider'
 import { useState } from 'react'
-import { Lock } from 'lucide-react'
+import { PasswordInput } from '@/components/ui/password-input'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -101,40 +101,19 @@ export default function SettingsPage() {
                     <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                       Current Password
                     </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        className="w-full pl-9 pr-3 py-2 border border-purple-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                      />
-                    </div>
+                    <PasswordInput placeholder="••••••••" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                       New Password
                     </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        className="w-full pl-9 pr-3 py-2 border border-purple-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                      />
-                    </div>
+                    <PasswordInput placeholder="••••••••" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                       Confirm Password
                     </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                      <input
-                        type="password"
-                        placeholder="••••••••"
-                        className="w-full pl-9 pr-3 py-2 border border-purple-100 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                      />
-                    </div>
+                    <PasswordInput placeholder="••••••••" />
                   </div>
                   <button className="px-4 py-2 bg-white border border-purple-200 text-purple-700 text-sm font-medium rounded-lg hover:bg-purple-50 transition-colors">
                     Update Password

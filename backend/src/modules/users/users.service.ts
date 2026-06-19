@@ -42,6 +42,10 @@ export class UsersService {
     return this.usersRepository.count({ where: { role } });
   }
 
+  countByPlan(plan: UserPlan): Promise<number> {
+    return this.usersRepository.count({ where: { plan } });
+  }
+
   adminExists(): Promise<boolean> {
     return this.usersRepository
       .exist({ where: { role: UserRole.ADMIN } })
@@ -56,8 +60,9 @@ export class UsersService {
     return this.templatesRepository.count({ where: { isActive: true } });
   }
 
-  async findAllPaginated(page = 1, limit = 20) {
+  async findAllPaginated(page = 1, limit = 20, plan?: UserPlan) {
     const [items, total] = await this.usersRepository.findAndCount({
+      where: plan ? { plan } : undefined,
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -72,7 +77,7 @@ export class UsersService {
         'updatedAt',
       ],
     });
-    return { items, total, page, limit };
+    return { items, total, page, limit, plan: plan ?? null };
   }
 
   async updatePlan(id: string, plan: UserPlan): Promise<UserEntity> {

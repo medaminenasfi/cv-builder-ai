@@ -9,6 +9,7 @@ import {
   Shield,
   ArrowRight,
   BarChart3,
+  CreditCard,
   ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
@@ -22,7 +23,7 @@ const STAT_ICONS = {
 } as const;
 
 export default function AdminDashboardPage() {
-  const { user } = useAuth();
+  const { adminUser } = useAuth();
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [recentUsers, setRecentUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +62,12 @@ export default function AdminDashboardPage() {
       icon: Users,
     },
     {
+      href: '/admin/plans',
+      title: 'Plans & Billing',
+      desc: 'See who pays (Pro) vs free users',
+      icon: CreditCard,
+    },
+    {
       href: '/admin/stats',
       title: 'Platform Stats',
       desc: 'Full metrics overview and last update time',
@@ -94,7 +101,7 @@ export default function AdminDashboardPage() {
           </p>
           <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Welcome back, <span className="font-medium text-gray-700">{user?.email}</span>
+            Welcome back, <span className="font-medium text-gray-700">{adminUser?.email}</span>
           </p>
         </div>
         <a

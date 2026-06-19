@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 import { UserLocale, UserPlan, UserRole } from '../../../common/enums/user.enum';
 
 export class BootstrapAdminDto {
@@ -17,6 +17,7 @@ export class BootstrapAdminDto {
   setupSecret: string;
 
   @ApiPropertyOptional({ enum: UserLocale })
+  @IsOptional()
   @IsEnum(UserLocale)
   locale?: UserLocale;
 }
@@ -35,5 +36,6 @@ export class UpdateUserRoleDto {
 
 export class UpdateUserBlockDto {
   @ApiProperty()
+  @IsBoolean()
   isBlocked: boolean;
 }

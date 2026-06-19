@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { apiFetch, apiFetchAdmin } from './api';
 
 export interface Template {
   id: string;
@@ -18,31 +18,35 @@ export function listActiveTemplates() {
 }
 
 export function listAllTemplates() {
-  return apiFetch<Template[]>('/admin/templates');
+  return apiFetchAdmin<Template[]>('/admin/templates');
 }
 
 export function createTemplate(data: Partial<Template>) {
-  return apiFetch<Template>('/admin/templates', {
+  return apiFetchAdmin<Template>('/admin/templates', {
     method: 'POST',
     body: JSON.stringify(data),
   });
 }
 
 export function updateTemplate(id: string, data: Partial<Template>) {
-  return apiFetch<Template>(`/admin/templates/${id}`, {
+  return apiFetchAdmin<Template>(`/admin/templates/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
 }
 
 export function toggleTemplate(id: string) {
-  return apiFetch<Template>(`/admin/templates/${id}/toggle`, { method: 'PATCH' });
+  return apiFetchAdmin<Template>(`/admin/templates/${id}/toggle`, { method: 'PATCH' });
 }
 
 export function deleteTemplate(id: string) {
-  return apiFetch<void>(`/admin/templates/${id}`, { method: 'DELETE' });
+  return apiFetchAdmin<void>(`/admin/templates/${id}`, { method: 'DELETE' });
+}
+
+export function previewActiveTemplate(id: string, rtl = false) {
+  return apiFetch<{ html: string }>(`/templates/${id}/preview?rtl=${rtl}`);
 }
 
 export function previewTemplate(id: string, rtl = false) {
-  return apiFetch<{ html: string }>(`/admin/templates/${id}/preview?rtl=${rtl}`);
+  return apiFetchAdmin<{ html: string }>(`/admin/templates/${id}/preview?rtl=${rtl}`);
 }

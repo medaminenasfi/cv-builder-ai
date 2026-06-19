@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Mail, Lock } from 'lucide-react'
+import { Mail } from 'lucide-react'
+import { PasswordInput } from '@/components/ui/password-input'
 import { useAuth } from '@/providers/AuthProvider'
 import { ApiError } from '@/lib/api'
 
@@ -92,18 +93,13 @@ export default function LoginPage() {
               <label className="block text-xs font-semibold uppercase tracking-widest text-purple-400 mb-2">
                 Password
               </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                <input
-                  type="password"
+              <PasswordInput
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={8}
-                  className="w-full pl-9 pr-4 py-2 border border-purple-100 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-purple-300 focus:border-purple-400 text-sm"
                   placeholder="••••••••"
                 />
-              </div>
             </div>
 
             <button
@@ -115,13 +111,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="text-center mt-6">
-            <span className="text-sm text-gray-600">
+          <div className="text-center mt-6 space-y-2">
+            <span className="text-sm text-gray-600 block">
               Don&apos;t have an account?{' '}
               <Link href="/register" className="text-purple-600 font-medium hover:text-purple-700">
                 Register
               </Link>
             </span>
+            <Link href="/admin/login" className="text-xs text-gray-400 hover:text-purple-600 block">
+              Admin login (separate session) →
+            </Link>
           </div>
         </div>
       </div>
