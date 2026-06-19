@@ -41,3 +41,22 @@ export class RefreshTokenDto {
   @IsString()
   refreshToken?: string;
 }
+
+export class UpdateProfileDto {
+  @ApiPropertyOptional({ enum: UserLocale })
+  @IsOptional()
+  @IsEnum(UserLocale)
+  locale?: UserLocale;
+}
+
+export class ChangePasswordDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(8)
+  currentPassword: string;
+
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  newPassword: string;
+}

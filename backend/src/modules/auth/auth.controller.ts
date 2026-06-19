@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
   Res,
@@ -17,7 +18,13 @@ import { JwtAuthGuard } from '../../common/guards/auth.guards';
 import { UserEntity } from '../users/entities/user.entity';
 import { AuthService } from './auth.service';
 import { AuthResponseDto, UserResponseDto } from './dto/auth-response.dto';
-import { LoginDto, RefreshTokenDto, RegisterDto } from './dto/auth.dto';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  RegisterDto,
+  ChangePasswordDto,
+  UpdateProfileDto,
+} from './dto/auth.dto';
 
 const REFRESH_COOKIE = 'refresh_token';
 
@@ -87,6 +94,29 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user profile' })
   getMe(@CurrentUser() user: UserEntity): UserResponseDto {
     return this.authService.getProfile(user);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update profile (locale)' })
+  updateMe(
+    @CurrentUser() user: UserEntity,
+    @Body() dto: UpdateProfileDto,
+  ): Promise<UserResponseDto> {
+    return this.authService.updateProfile(user, dto);
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Change password' })
+  changePassword(
+    @CurrentUser() user: UserEntity,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<void> {
+    return this.authService.changePassword(user, dto);
   }
 
   private setRefreshCookie(res: Response, refreshToken: string): void {

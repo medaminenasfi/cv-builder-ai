@@ -47,4 +47,23 @@ export function emptyCVData(locale: 'en' | 'fr' | 'ar' = 'en'): CVData {
   };
 }
 
+/** Merge stored/partial data with defaults so placeholders always render */
+export function normalizeCVData(
+  raw: unknown,
+  locale: 'en' | 'fr' | 'ar' = 'en',
+): CVData {
+  const base = emptyCVData(locale);
+  if (!raw || typeof raw !== 'object') return base;
+
+  const partial = raw as Partial<CVData>;
+  return {
+    meta: { ...base.meta, ...(partial.meta ?? {}) },
+    personal: { ...base.personal, ...(partial.personal ?? {}) },
+    summary: partial.summary ?? base.summary,
+    experience: Array.isArray(partial.experience) ? partial.experience : base.experience,
+    education: Array.isArray(partial.education) ? partial.education : base.education,
+    skills: Array.isArray(partial.skills) ? partial.skills : base.skills,
+  };
+}
+
 export const FREE_CV_LIMIT = 3;

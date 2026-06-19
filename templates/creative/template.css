@@ -7,5 +7,13 @@ body { font-family: 'Helvetica Neue', sans-serif; margin: 0; padding: 0; color: 
 main { flex: 1; padding: 32px 40px; }
 h2 { font-size: 14px; color: #7c3aed; text-transform: uppercase; letter-spacing: 1px; }
 .experience-item { margin-bottom: 16px; }
+.exp-row { display: flex; justify-content: space-between; gap: 1em; }
+.exp-role { font-weight: 600; }
+.exp-dates { font-size: 12px; color: #666; }
+.exp-meta { margin: 2px 0 6px; }
+.education-item { margin-bottom: 14px; }
+.edu-institution { font-weight: 600; }
+.edu-degree { margin: 2px 0 0; }
+.edu-dates { float: right; font-size: 12px; color: #666; }
 .skill { display: inline-block; background: rgba(255,255,255,0.2); padding: 2px 8px; margin: 2px; font-size: 11px; border-radius: 4px; }
 [dir="rtl"] .cv-root { flex-direction: row-reverse; }

@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { normalizeCVData } from '../../common/cv-schema';
 import { CVsService } from '../cvs/cvs.service';
 import { TemplatesService } from '../templates/templates.service';
 import { renderTemplate } from '../../template-engine/render';
-import type { CVData } from '../../common/cv-schema';
 
 @Injectable()
 export class ExportService {
@@ -11,15 +11,26 @@ export class ExportService {
     private readonly templatesService: TemplatesService,
   ) {}
 
-  async exportHtml(cvId: string, userId: string): Promise<{ html: string }> {
+  async renderCVHtml(
+    cvId: string,
+    userId: string,
+    draft?: { data?: Record<string, unknown>; templateId?: string | null },
+  ): Promise<{ html: string }> {
     const cv = await this.cvsService.findById(cvId, userId);
     const version = await this.cvsService.getLatestVersion(cvId);
-    const data = (version?.data ?? {}) as unknown as CVData;
+    const locale = (cv.locale ?? 'en') as 'en' | 'fr' | 'ar';
+
+    const data = normalizeCVData(
+      draft?.data ?? version?.data ?? {},
+      locale,
+    );
+
+    const templateId = draft?.templateId !== undefined ? draft.templateId : cv.templateId;
 
     let htmlStructure = '';
     let css = 'body { font-family: Arial, sans-serif; padding: 40px; }';
-    if (cv.templateId) {
-      const template = await this.templatesService.findById(cv.templateId);
+    if (templateId) {
+      const template = await this.templatesService.findById(templateId);
       if (template) {
         htmlStructure = template.htmlStructure;
         css = template.css;
@@ -31,5 +42,9 @@ export class ExportService {
       locale: cv.locale,
     });
     return { html };
+  }
+
+  async exportHtml(cvId: string, userId: string): Promise<{ html: string }> {
+    return this.renderCVHtml(cvId, userId);
   }
 }

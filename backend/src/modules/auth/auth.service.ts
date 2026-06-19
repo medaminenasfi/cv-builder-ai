@@ -13,7 +13,7 @@ import { UserLocale, UserPlan, UserRole } from '../../common/enums/user.enum';
 import { UsersService } from '../users/users.service';
 import { UserEntity } from '../users/entities/user.entity';
 import { RefreshTokenEntity } from './entities/refresh-token.entity';
-import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { RegisterDto, LoginDto, ChangePasswordDto, UpdateProfileDto } from './dto/auth.dto';
 import { AuthResponseDto, UserResponseDto } from './dto/auth-response.dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 
@@ -105,6 +105,23 @@ export class AuthService {
 
   getProfile(user: UserEntity): UserResponseDto {
     return this.toUserResponse(user);
+  }
+
+  async updateProfile(user: UserEntity, dto: UpdateProfileDto): Promise<UserResponseDto> {
+    if (dto.locale !== undefined) {
+      user.locale = dto.locale;
+      await this.usersService.save(user);
+    }
+    return this.toUserResponse(user);
+  }
+
+  async changePassword(user: UserEntity, dto: ChangePasswordDto): Promise<void> {
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    user.passwordHash = await bcrypt.hash(dto.newPassword, 12);
+    await this.usersService.save(user);
   }
 
   private async issueTokens(user: UserEntity): Promise<AuthResponseDto> {

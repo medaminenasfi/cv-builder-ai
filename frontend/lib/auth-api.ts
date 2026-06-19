@@ -10,6 +10,7 @@ import type {
   LoginPayload,
   RegisterPayload,
   User,
+  UserLocale,
 } from './types/auth';
 
 async function authLogin(payload: LoginPayload): Promise<AuthResponse> {
@@ -70,6 +71,20 @@ export function logoutAdmin() {
 
 export function getMeUser() {
   return apiFetch<User>('/auth/me', {}, 'user');
+}
+
+export function updateProfile(locale: UserLocale) {
+  return apiFetch<User>('/auth/me', {
+    method: 'PATCH',
+    body: JSON.stringify({ locale }),
+  }, 'user');
+}
+
+export function changePassword(currentPassword: string, newPassword: string) {
+  return apiFetch<void>('/auth/password', {
+    method: 'PATCH',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  }, 'user');
 }
 
 export function getMeAdmin() {

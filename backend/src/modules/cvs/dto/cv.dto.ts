@@ -45,3 +45,15 @@ export class UpdateCVDataDto {
   @IsObject()
   data: Record<string, unknown>;
 }
+
+export class PreviewCVDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  data?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  templateId?: string | null;
+}

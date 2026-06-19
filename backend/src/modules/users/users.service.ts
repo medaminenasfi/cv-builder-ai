@@ -109,6 +109,10 @@ export class UsersService {
     return this.usersRepository.save(user);
   }
 
+  save(user: UserEntity): Promise<UserEntity> {
+    return this.usersRepository.save(user);
+  }
+
   async getUserCvCount(userId: string): Promise<number> {
     return this.cvsRepository.count({ where: { userId } });
   }

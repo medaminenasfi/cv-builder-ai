@@ -1,0 +1,156 @@
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+.latex-cv {
+  font-family: 'Source Serif 4', 'Times New Roman', Times, serif;
+  font-size: 10.5pt;
+  line-height: 1.35;
+  color: #111;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 14mm 16mm;
+}
+
+/* Header — like LaTeX moderncv */
+.latex-header {
+  text-align: center;
+  margin-bottom: 1.2em;
+}
+
+.latex-name {
+  font-size: 22pt;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.35em;
+  line-height: 1.1;
+}
+
+.latex-contact {
+  font-size: 9pt;
+  color: #333;
+  margin: 0;
+}
+
+.latex-contact a {
+  color: #111;
+  text-decoration: none;
+}
+
+.latex-contact a:hover {
+  text-decoration: underline;
+}
+
+/* Section titles with horizontal rule */
+.latex-section {
+  margin-top: 0.85em;
+}
+
+.latex-section h2 {
+  font-size: 11pt;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.35em;
+  padding-bottom: 0.15em;
+  border-bottom: 0.6pt solid #222;
+}
+
+.latex-summary {
+  margin: 0;
+  text-align: justify;
+}
+
+/* Education */
+.education-item {
+  margin-bottom: 0.65em;
+}
+
+.edu-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1em;
+}
+
+.edu-institution {
+  font-weight: 700;
+}
+
+.edu-location {
+  font-size: 9pt;
+  color: #444;
+  white-space: nowrap;
+}
+
+.edu-degree {
+  margin: 0.1em 0 0;
+  font-size: 10pt;
+}
+
+.edu-dates {
+  float: right;
+  font-size: 9pt;
+  color: #444;
+}
+
+/* Experience — role left, dates right */
+.experience-item {
+  margin-bottom: 0.75em;
+}
+
+.exp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1em;
+}
+
+.exp-role {
+  font-weight: 700;
+  font-size: 10.5pt;
+}
+
+.exp-dates {
+  font-size: 9pt;
+  color: #444;
+  white-space: nowrap;
+}
+
+.exp-meta {
+  margin: 0.1em 0 0.25em;
+  font-size: 10pt;
+  color: #222;
+}
+
+.experience-item ul {
+  margin: 0.2em 0 0;
+  padding-left: 1.1em;
+}
+
+.experience-item li {
+  margin-bottom: 0.15em;
+  text-align: justify;
+}
+
+/* Skills — inline list like LaTeX */
+.latex-skills .skill {
+  display: inline;
+}
+
+.latex-skills .skill::after {
+  content: ', ';
+}
+
+.latex-skills .skill:last-child::after {
+  content: '';
+}
+
+.skill {
+  font-size: 10pt;
+}
+
+@media print {
+  .latex-cv {
+    padding: 0;
+    max-width: none;
+  }
+}

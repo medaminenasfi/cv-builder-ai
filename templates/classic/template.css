@@ -2,5 +2,14 @@ body { font-family: Georgia, serif; max-width: 800px; margin: 0 auto; padding: 4
 header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 12px; }
 h1 { margin: 0; font-size: 26px; }
 h2 { font-size: 13px; text-transform: uppercase; margin-top: 20px; }
+.exp-row { display: flex; justify-content: space-between; gap: 1em; }
+.exp-role { font-weight: bold; font-size: 14px; }
+.exp-dates { font-size: 12px; color: #555; }
+.exp-meta { font-size: 13px; margin: 2px 0 4px; }
+.education-item { margin-bottom: 12px; }
+.edu-row { display: flex; justify-content: space-between; gap: 1em; }
+.edu-institution { font-weight: bold; }
+.edu-degree { margin: 2px 0 0; font-size: 13px; }
+.edu-dates { float: right; font-size: 12px; color: #555; }
 .experience-item h3 { font-size: 14px; margin-bottom: 2px; }
 .skill { margin-right: 8px; }

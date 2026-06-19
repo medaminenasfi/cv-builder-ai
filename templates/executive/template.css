@@ -4,5 +4,13 @@ body { font-family: 'Times New Roman', serif; max-width: 850px; margin: 0 auto; 
 .subtitle { font-size: 16px; opacity: 0.9; margin-top: 8px; }
 .contact { font-size: 13px; opacity: 0.7; margin-top: 4px; }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; color: #1e293b; border-bottom: 2px solid #1e293b; padding-bottom: 4px; }
+.exp-row { display: flex; justify-content: space-between; gap: 1em; }
+.exp-role { font-weight: bold; }
+.exp-dates { font-size: 12px; opacity: 0.8; }
+.exp-meta { font-size: 13px; margin: 2px 0 6px; }
+.education-item { margin-bottom: 14px; }
+.edu-institution { font-weight: bold; }
+.edu-degree { margin: 2px 0 0; }
+.edu-dates { float: right; font-size: 12px; opacity: 0.8; }
 .experience-item { margin-bottom: 18px; }
 .skill { display: inline-block; background: #f1f5f9; padding: 3px 10px; margin: 2px; font-size: 12px; }

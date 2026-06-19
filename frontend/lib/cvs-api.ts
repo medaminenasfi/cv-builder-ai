@@ -73,6 +73,16 @@ export function exportCVHtml(id: string) {
   return apiFetch<{ html: string }>(`/cvs/${id}/export/html`);
 }
 
+export function previewCV(
+  id: string,
+  payload?: { data?: Record<string, unknown>; templateId?: string | null },
+) {
+  return apiFetch<{ html: string }>(`/cvs/${id}/preview`, {
+    method: 'POST',
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
 export function shareCV(id: string) {
   return apiFetch<{ token: string; url: string }>(`/cvs/${id}/share`, { method: 'POST' });
 }
