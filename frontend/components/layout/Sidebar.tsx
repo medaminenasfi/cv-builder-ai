@@ -9,7 +9,6 @@ import {
   LogOut,
   Palette,
 } from 'lucide-react'
-import { useState } from 'react'
 import { useAuth } from '@/providers/AuthProvider'
 
 interface NavItem {
@@ -26,94 +25,145 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'settings', icon: <Settings size={20} />, tooltip: 'Settings', href: '/settings' },
 ]
 
+const ACTIVE_GRADIENT = 'linear-gradient(135deg, #7c3aed, #a855f7)'
+
 function getInitials(email: string): string {
   const part = email.split('@')[0] ?? 'U'
   return part.slice(0, 2).toUpperCase()
 }
 
-export function Sidebar() {
-  const pathname = usePathname()
-  const { user, logout, hasAdminSession } = useAuth()
-  const [showTooltip, setShowTooltip] = useState<string | null>(null)
+function NavLink({
+  item,
+  activeId,
+  layout,
+}: {
+  item: NavItem
+  activeId: string
+  layout: 'sidebar' | 'bottom'
+}) {
+  const isActive = activeId === item.id
 
-  const activeId =
-    NAV_ITEMS.find((item) => pathname.startsWith(item.href))?.id ?? 'dashboard'
+  if (layout === 'bottom') {
+    return (
+      <Link
+        href={item.href}
+        aria-label={item.tooltip}
+        className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2"
+      >
+        <span
+          className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+            isActive ? 'text-white' : 'text-purple-300'
+          }`}
+          style={isActive ? { background: ACTIVE_GRADIENT } : undefined}
+        >
+          {item.icon}
+        </span>
+      </Link>
+    )
+  }
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-14 bg-slate-950 flex flex-col items-center justify-between py-6 border-r border-slate-800">
-      <div className="flex flex-col items-center gap-8">
+    <div className="relative group">
+      <Link
+        href={item.href}
+        aria-label={item.tooltip}
+        className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+          isActive
+            ? 'text-white'
+            : 'text-purple-300 hover:bg-purple-50 hover:text-purple-500 bg-transparent'
+        }`}
+        style={isActive ? { background: ACTIVE_GRADIENT } : undefined}
+      >
+        {item.icon}
+      </Link>
+      <div className="absolute left-16 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-100 pointer-events-none z-50">
+        {item.tooltip}
+      </div>
+    </div>
+  )
+}
+
+function DesktopSidebar({ activeId }: { activeId: string }) {
+  const { user, logout } = useAuth()
+
+  return (
+    <aside className="hidden sm:flex fixed left-0 top-0 h-screen w-14 bg-white flex-col items-center border-r border-purple-100 z-40">
+      <div className="h-14 w-full flex items-center justify-center shrink-0">
         <Link
           href="/dashboard"
-          className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-600 to-purple-500 flex items-center justify-center text-white font-semibold text-sm"
+          aria-label="Resume Builder home"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium"
+          style={{ background: ACTIVE_GRADIENT }}
         >
           R
         </Link>
-
-        <nav className="flex flex-col gap-3">
-          {NAV_ITEMS.map((item) => (
-            <div key={item.id} className="relative">
-              <Link
-                href={item.href}
-                onMouseEnter={() => setShowTooltip(item.id)}
-                onMouseLeave={() => setShowTooltip(null)}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-                  activeId === item.id
-                    ? 'bg-gradient-to-br from-purple-600 to-purple-500 text-white'
-                    : 'text-purple-300 hover:bg-slate-800'
-                }`}
-              >
-                {item.icon}
-              </Link>
-              {showTooltip === item.id && (
-                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
-                  {item.tooltip}
-                </div>
-              )}
-            </div>
-          ))}
-        </nav>
       </div>
 
-      <div className="flex flex-col items-center gap-3 border-t border-slate-800 pt-4 w-full px-2">
+      <nav className="flex flex-col items-center gap-2 flex-1 pt-2">
+        {NAV_ITEMS.map((item) => (
+          <NavLink key={item.id} item={item} activeId={activeId} layout="sidebar" />
+        ))}
+      </nav>
+
+      <div className="w-full flex flex-col items-center gap-2 border-t border-purple-100 py-4 shrink-0">
         <div
-          className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-semibold"
+          className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-medium"
+          style={{ background: ACTIVE_GRADIENT }}
           title={user?.email ?? 'Not logged in'}
         >
           {user ? getInitials(user.email) : '?'}
         </div>
 
-        <button
-          type="button"
-          onClick={() => logout()}
-          className="w-10 h-10 rounded-xl text-purple-300 hover:bg-slate-800 flex items-center justify-center transition-colors relative group"
-        >
-          <LogOut size={18} />
-          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-slate-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100">
-            User logout
-          </div>
-        </button>
-
-        {hasAdminSession && (
-          <Link
-            href="/admin"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[9px] text-center text-purple-400 hover:text-purple-300 leading-tight"
-            title="Admin panel (separate session)"
+        <div className="relative group">
+          <button
+            type="button"
+            onClick={() => logout()}
+            aria-label="Logout"
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-purple-300 hover:bg-purple-50 hover:text-purple-500 bg-transparent"
           >
-            Admin ↗
-          </Link>
-        )}
-      </div>
-
-      {user?.plan === 'free' && (
-        <div className="absolute bottom-20 left-0 right-0 px-2 text-center">
-          <div className="text-xs text-purple-300 font-medium mb-1">Free plan</div>
-          <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-purple-600 to-purple-500" style={{ width: '33%' }} />
+            <LogOut size={18} />
+          </button>
+          <div className="absolute left-16 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-100 pointer-events-none z-50">
+            Logout
           </div>
         </div>
-      )}
+      </div>
     </aside>
+  )
+}
+
+function MobileBottomNav({ activeId }: { activeId: string }) {
+  const { logout } = useAuth()
+
+  return (
+    <nav className="flex sm:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-purple-100 z-40 items-stretch">
+      {NAV_ITEMS.map((item) => (
+        <NavLink key={item.id} item={item} activeId={activeId} layout="bottom" />
+      ))}
+      <button
+        type="button"
+        onClick={() => logout()}
+        aria-label="Logout"
+        className="flex flex-1 flex-col items-center justify-center py-2 text-purple-300"
+      >
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center">
+          <LogOut size={20} />
+        </span>
+      </button>
+    </nav>
+  )
+}
+
+export function Sidebar() {
+  const pathname = usePathname()
+
+  const activeId =
+    NAV_ITEMS.find((item) => pathname.startsWith(item.href))?.id ?? 'dashboard'
+
+  return (
+    <>
+      <DesktopSidebar activeId={activeId} />
+      <MobileBottomNav activeId={activeId} />
+    </>
   )
 }

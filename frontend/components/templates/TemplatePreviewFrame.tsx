@@ -8,6 +8,8 @@ interface TemplatePreviewFrameProps {
   templateName: string
   thumbnailUrl?: string | null
   compact?: boolean
+  /** Scaled thumbnail for template gallery cards (aspect container). */
+  card?: boolean
   rtl?: boolean
 }
 
@@ -16,6 +18,7 @@ export function TemplatePreviewFrame({
   templateName,
   thumbnailUrl,
   compact = false,
+  card = false,
   rtl = false,
 }: TemplatePreviewFrameProps) {
   const [html, setHtml] = useState<string | null>(null)
@@ -39,8 +42,12 @@ export function TemplatePreviewFrame({
   if (thumbnailUrl) {
     return (
       <div
-        className={`relative overflow-hidden bg-slate-100 border border-slate-200 ${
-          compact ? 'h-36 rounded-lg' : 'h-full min-h-[420px] rounded-xl'
+        className={`relative overflow-hidden bg-purple-50 ${
+          card
+            ? 'absolute inset-0'
+            : compact
+              ? 'h-36 rounded-lg border border-slate-200'
+              : 'h-full min-h-[420px] rounded-xl border border-slate-200'
         }`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -49,6 +56,38 @@ export function TemplatePreviewFrame({
           alt={`${templateName} preview`}
           className="w-full h-full object-cover object-top"
         />
+      </div>
+    )
+  }
+
+  if (card) {
+    const initial = templateName.trim().charAt(0).toUpperCase() || 'T'
+
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-purple-50">
+        {!html && !error && (
+          <div className="absolute inset-0 flex items-center justify-center text-2xl font-medium text-purple-300">
+            {initial}
+          </div>
+        )}
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center text-2xl font-medium text-purple-300">
+            {initial}
+          </div>
+        )}
+        {html && (
+          <div
+            className="absolute top-0 left-0 origin-top-left pointer-events-none"
+            style={{ transform: 'scale(0.18)', width: '555.56%', height: '555.56%' }}
+          >
+            <iframe
+              title={`${templateName} preview`}
+              srcDoc={html}
+              className="w-full min-h-[1100px] border-0 bg-white"
+              sandbox="allow-same-origin"
+            />
+          </div>
+        )}
       </div>
     )
   }

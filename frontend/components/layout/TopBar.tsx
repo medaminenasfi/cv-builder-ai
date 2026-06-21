@@ -29,7 +29,8 @@ export function TopBar({ title, actions }: TopBarProps) {
         </button>
 
         <div
-          className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center text-white text-xs font-semibold"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold"
+          style={{ background: 'linear-gradient(135deg, #7c3aed, #a855f7)' }}
           title={user?.email ?? 'User account'}
         >
           {user ? getInitials(user.email) : '?'}

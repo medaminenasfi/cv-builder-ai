@@ -50,3 +50,22 @@ export function previewActiveTemplate(id: string, rtl = false) {
 export function previewTemplate(id: string, rtl = false) {
   return apiFetchAdmin<{ html: string }>(`/admin/templates/${id}/preview?rtl=${rtl}`);
 }
+
+export interface TemplateImportResult {
+  name: string;
+  slug?: string;
+  htmlStructure: string;
+  css: string;
+  supportsRtl: boolean;
+  confidence: { overall: number; layout: number; styling: number };
+  notes?: string;
+}
+
+export function importTemplateFromFile(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetchAdmin<TemplateImportResult>('/admin/templates/import', {
+    method: 'POST',
+    body: form,
+  });
+}

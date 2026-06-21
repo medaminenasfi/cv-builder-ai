@@ -8,22 +8,32 @@ interface AppShellProps {
   children: React.ReactNode
   title: string
   actions?: React.ReactNode
+  /** Hide the default top bar (page provides its own header). */
+  hideTopBar?: boolean
+  /** Skip inner max-width wrapper (page controls layout). */
+  fullBleed?: boolean
 }
 
-export function AppShell({ children, title, actions }: AppShellProps) {
+export function AppShell({
+  children,
+  title,
+  actions,
+  hideTopBar = false,
+  fullBleed = false,
+}: AppShellProps) {
   return (
     <div className="flex h-screen bg-slate-50">
-      {/* Sidebar */}
       <Sidebar />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col ml-14">
-        {/* Top Bar */}
-        <TopBar title={title} actions={actions} />
+      <div className="flex-1 flex flex-col sm:ml-14 pb-16 sm:pb-0 min-w-0">
+        {!hideTopBar && <TopBar title={title} actions={actions} />}
 
-        {/* Main Area */}
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-6 py-6">{children}</div>
+          {fullBleed ? (
+            children
+          ) : (
+            <div className="max-w-6xl mx-auto px-6 py-6">{children}</div>
+          )}
         </main>
       </div>
     </div>

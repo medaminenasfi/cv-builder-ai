@@ -74,13 +74,13 @@
   --chart-4: #d8b4fe;
   --chart-5: #e9d5ff;
   --radius: 0.5rem;
-  --sidebar: #0f0a1a;
-  --sidebar-foreground: #a78bfa;
-  --sidebar-primary: #a855f7;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #c4b5fd;
+  --sidebar-primary: #7c3aed;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #7c3aed;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #1e1030;
+  --sidebar-accent: #f5f3ff;
+  --sidebar-accent-foreground: #7c3aed;
+  --sidebar-border: #ede9fe;
   --sidebar-ring: #a855f7;
 }
 

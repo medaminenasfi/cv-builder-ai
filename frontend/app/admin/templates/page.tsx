@@ -1,16 +1,18 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Eye, Pencil, Trash2, X, Upload, Info } from 'lucide-react'
+import { Plus, Eye, Pencil, Trash2, X, Upload, Info, Sparkles } from 'lucide-react'
 import {
   createTemplate,
   deleteTemplate,
+  importTemplateFromFile,
   listAllTemplates,
   previewTemplate,
   toggleTemplate,
   updateTemplate,
   type Template,
 } from '@/lib/templates-api'
+import { isPdfFile, pdfFileToPng } from '@/lib/pdf-to-image'
 
 const EMPTY_FORM = {
   name: '',
@@ -38,8 +40,11 @@ export default function AdminTemplatesPage() {
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importNote, setImportNote] = useState<string | null>(null)
   const htmlInputRef = useRef<HTMLInputElement>(null)
   const cssInputRef = useRef<HTMLInputElement>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
 
   const load = () => listAllTemplates().then(setTemplates).catch(console.error)
   useEffect(() => { load() }, [])
@@ -70,6 +75,42 @@ export default function AdminTemplatesPage() {
     const text = await readFileAsText(file)
     if (type === 'html') setForm((f) => ({ ...f, htmlStructure: text }))
     else setForm((f) => ({ ...f, css: text }))
+  }
+
+  const handlePdfImport = async (file: File | undefined) => {
+    if (!file) return
+    setImporting(true)
+    setError(null)
+    setImportNote(null)
+    try {
+      let uploadFile = file
+      if (isPdfFile(file)) {
+        setImportNote('Converting PDF to image for AI analysis…')
+        uploadFile = await pdfFileToPng(file)
+      }
+      const result = await importTemplateFromFile(uploadFile)
+      setEditingId(null)
+      setForm({
+        name: result.name,
+        slug: result.slug ?? '',
+        htmlStructure: result.htmlStructure,
+        css: result.css,
+        thumbnailUrl: '',
+        supportsRtl: result.supportsRtl,
+      })
+      setShowForm(true)
+      const pct = Math.round(result.confidence.overall * 100)
+      setImportNote(
+        result.confidence.overall < 0.7
+          ? `Imported with ${pct}% confidence — please review HTML/CSS before publishing.${result.notes ? ` ${result.notes}` : ''}`
+          : `Imported with ${pct}% confidence.${result.notes ? ` ${result.notes}` : ''}`,
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Import failed')
+    } finally {
+      setImporting(false)
+      if (pdfInputRef.current) pdfInputRef.current.value = ''
+    }
   }
 
   const handleSave = async () => {
@@ -122,12 +163,30 @@ export default function AdminTemplatesPage() {
             Add CV templates — users see only <strong>Active</strong> ones on /templates
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:opacity-90"
-        >
-          <Plus size={16} /> Add Template
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={pdfInputRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+            className="hidden"
+            onChange={(e) => handlePdfImport(e.target.files?.[0])}
+          />
+          <button
+            type="button"
+            onClick={() => pdfInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 border border-purple-200 text-purple-700 rounded-lg text-sm hover:bg-purple-50 disabled:opacity-50"
+          >
+            <Sparkles size={16} />
+            {importing ? 'Analyzing…' : 'Import from PDF/Image'}
+          </button>
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:opacity-90"
+          >
+            <Plus size={16} /> Add Template
+          </button>
+        </div>
       </div>
 
       {/* Help box */}
@@ -137,12 +196,13 @@ export default function AdminTemplatesPage() {
           <div className="space-y-2 text-gray-700">
             <p className="font-medium text-purple-900">How to add your own templates</p>
             <ol className="list-decimal list-inside space-y-1 text-xs">
-              <li><strong>Option A — Admin UI:</strong> Click &quot;Add Template&quot;, upload your .html and .css files</li>
-              <li><strong>Option B — Folder + seed:</strong> Put files in <code className="bg-white px-1 rounded">templates/my-name/template.html</code> + <code className="bg-white px-1 rounded">template.css</code>, then run <code className="bg-white px-1 rounded">npm run seed:templates</code> in backend</li>
+              <li><strong>Option A — AI import:</strong> Click &quot;Import from PDF/Image&quot; — PDFs are converted to an image in your browser (no OpenRouter file fee), then Claude generates HTML+CSS with placeholders</li>
+              <li><strong>Option B — Admin UI:</strong> Click &quot;Add Template&quot;, upload your .html and .css files</li>
+              <li><strong>Option C — Folder + seed:</strong> Put files in <code className="bg-white px-1 rounded">templates/my-name/template.html</code> + <code className="bg-white px-1 rounded">template.css</code>, then run <code className="bg-white px-1 rounded">npm run seed:templates</code> in backend</li>
               <li><strong>PDF design:</strong> Export pages as PNG → put in <code className="bg-white px-1 rounded">frontend/public/template-thumbs/</code> → set Thumbnail URL (e.g. <code className="bg-white px-1 rounded">/template-thumbs/modern.png</code>). Rebuild HTML/CSS from your PDF layout for live CV data.</li>
             </ol>
             <p className="text-xs text-gray-600">
-              Use placeholders: <code>{'{{fullName}}'}</code>, <code>{'{{title}}'}</code>, <code>{'{{email}}'}</code>, <code>{'{{summary}}'}</code>, <code>{'{{experience}}'}</code>, <code>{'{{skills}}'}</code>
+              Use placeholders: <code>{'{{fullName}}'}</code>, <code>{'{{contactLine}}'}</code>, <code>{'{{summary}}'}</code>, <code>{'{{education}}'}</code>, <code>{'{{experience}}'}</code>, <code>{'{{skills}}'}</code>
             </p>
           </div>
         </div>
@@ -231,6 +291,9 @@ export default function AdminTemplatesPage() {
               <button onClick={() => setShowForm(false)}><X size={20} /></button>
             </div>
 
+            {importNote && (
+              <p className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{importNote}</p>
+            )}
             {error && (
               <p className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
             )}

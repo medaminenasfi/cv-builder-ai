@@ -8,9 +8,14 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user.enum';
@@ -18,6 +23,7 @@ import { JwtAuthGuard, RolesGuard } from '../../common/guards/auth.guards';
 import { UserEntity } from '../users/entities/user.entity';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto/template.dto';
 import { TemplatesService } from './templates.service';
+import { TemplateImportService } from './template-import.service';
 
 @ApiTags('templates')
 @Controller('templates')
@@ -49,7 +55,29 @@ export class TemplatesController {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminTemplatesController {
-  constructor(private readonly templatesService: TemplatesService) {}
+  constructor(
+    private readonly templatesService: TemplatesService,
+    private readonly templateImportService: TemplateImportService,
+  ) {}
+
+  @Post('import')
+  @ApiOperation({ summary: 'Import template from PDF or image via AI vision' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  async importFromFile(@UploadedFile() file?: Express.Multer.File) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('Upload a PDF, PNG, or JPEG file');
+    }
+    return this.templateImportService.extractTemplateConfigFromFile(
+      file.buffer,
+      file.mimetype,
+    );
+  }
 
   @Get()
   findAll() {
