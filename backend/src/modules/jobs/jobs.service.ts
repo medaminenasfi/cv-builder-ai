@@ -4,6 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { normalizeCVData, type CVData } from '../../common/cv-schema';
 import {
   computeKeywordScore,
@@ -27,8 +29,12 @@ import {
   cvKeywordEnhanceUserMessage,
 } from '../ai/prompts/cv-ai.prompts';
 import { OpenRouterService, isOpenRouterCreditsError } from '../ai/openrouter.service';
+import { AiUsageService } from '../usage/ai-usage.service';
+import { UsersService } from '../users/users.service';
 import { CVsService } from '../cvs/cvs.service';
 import { CVVersionSource } from '../cvs/entities/cv-version.entity';
+import { AtsMatchEntity } from './entities/ats-match.entity';
+import { CoverLetterEntity } from './entities/cover-letter.entity';
 
 export interface AtsMatchResult {
   score: number;
@@ -44,6 +50,7 @@ export interface AtsMatchResult {
   gaps?: string[];
   /** ai = OpenRouter analysis; keyword = local fallback when credits unavailable */
   analysisMode?: 'ai' | 'keyword';
+  matchId?: string;
 }
 
 interface KeywordEnhancePatch {
@@ -61,6 +68,12 @@ export class JobsService {
   constructor(
     private readonly cvsService: CVsService,
     private readonly openRouter: OpenRouterService,
+    private readonly aiUsage: AiUsageService,
+    private readonly usersService: UsersService,
+    @InjectRepository(AtsMatchEntity)
+    private readonly atsMatchesRepository: Repository<AtsMatchEntity>,
+    @InjectRepository(CoverLetterEntity)
+    private readonly coverLettersRepository: Repository<CoverLetterEntity>,
   ) {}
 
   private async getCvData(cvId: string, userId: string): Promise<CVData> {
@@ -77,16 +90,23 @@ export class JobsService {
     cvId: string,
     userId: string,
     jobDescription: string,
-    _jobTitle?: string,
+    jobTitle?: string,
   ): Promise<AtsMatchResult> {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
     const cvData = await this.getCvData(cvId, userId);
     const cvJson = compactCvForAts(cvData);
 
+    let result: AtsMatchResult;
+
     try {
+      await this.aiUsage.assertWithinQuota(userId, user.plan);
       const raw = await this.openRouter.chat(
         CV_ATS_SYSTEM_PROMPT,
         cvAtsUserMessage(cvJson, jobDescription),
       );
+      await this.aiUsage.recordCall(userId);
 
       const parsed = parseAiJson<{
         score?: number;
@@ -97,7 +117,7 @@ export class JobsService {
       }>(raw);
 
       const missingKeywords = parsed.missingKeywords ?? [];
-      return {
+      result = {
         score: Math.min(100, Math.max(0, Math.round(parsed.score ?? 0))),
         breakdown: parsed.breakdown ?? {
           keywords: 0,
@@ -114,11 +134,39 @@ export class JobsService {
     } catch (err) {
       if (isOpenRouterCreditsError(err)) {
         this.logger.warn('ATS match using keyword fallback — OpenRouter credits low');
-        return this.fallbackMatch(cvData, jobDescription);
+        result = this.fallbackMatch(cvData, jobDescription);
+      } else if (err instanceof BadGatewayException) {
+        throw err;
+      } else {
+        result = this.fallbackMatch(cvData, jobDescription);
       }
-      if (err instanceof BadGatewayException) throw err;
-      return this.fallbackMatch(cvData, jobDescription);
     }
+
+    const saved = await this.atsMatchesRepository.save(
+      this.atsMatchesRepository.create({
+        cvId,
+        userId,
+        jobTitle: jobTitle ?? null,
+        jobDescription,
+        score: result.score,
+        breakdown: result.breakdown,
+        matchedKeywords: result.matchedKeywords,
+        missingKeywords: result.missingKeywords,
+        suggestions: result.suggestions,
+        analysisMode: result.analysisMode ?? 'keyword',
+      }),
+    );
+
+    return { ...result, matchId: saved.id };
+  }
+
+  async listMatches(cvId: string, userId: string) {
+    await this.cvsService.findById(cvId, userId);
+    return this.atsMatchesRepository.find({
+      where: { cvId },
+      order: { createdAt: 'DESC' },
+      take: 20,
+    });
   }
 
   private fallbackMatch(cvData: CVData, jobDescription: string): AtsMatchResult {
@@ -326,22 +374,52 @@ export class JobsService {
     return { applied: true };
   }
 
-  async coverLetter(cvId: string, userId: string, jobDescription: string) {
+  async coverLetter(
+    cvId: string,
+    userId: string,
+    jobDescription: string,
+    jobTitle?: string,
+  ) {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
     const cvData = await this.getCvData(cvId, userId);
     const locale = cvData.meta.locale ?? 'en';
+    let content: string;
 
     try {
+      await this.aiUsage.assertWithinQuota(userId, user.plan);
       const raw = await this.openRouter.chat(
         cvCoverLetterSystemPrompt(locale),
         cvCoverLetterUserMessage(JSON.stringify(cvData), jobDescription),
       );
+      await this.aiUsage.recordCall(userId);
       const parsed = parseAiJson<{ content?: string }>(raw);
-      return { content: parsed.content ?? '' };
+      content = parsed.content ?? '';
     } catch {
-      return {
-        content: `Dear Hiring Manager,\n\nI am excited to apply for this role. My experience aligns with your requirements.\n\n${jobDescription.slice(0, 200)}...\n\nSincerely,\n${cvData.personal.fullName || '[Your Name]'}`,
-      };
+      content = `Dear Hiring Manager,\n\nI am excited to apply for this role. My experience aligns with your requirements.\n\n${jobDescription.slice(0, 200)}...\n\nSincerely,\n${cvData.personal.fullName || '[Your Name]'}`;
     }
+
+    const saved = await this.coverLettersRepository.save(
+      this.coverLettersRepository.create({
+        cvId,
+        userId,
+        jobTitle: jobTitle ?? null,
+        jobDescription,
+        content,
+      }),
+    );
+
+    return { id: saved.id, content };
+  }
+
+  async listCoverLetters(cvId: string, userId: string) {
+    await this.cvsService.findById(cvId, userId);
+    return this.coverLettersRepository.find({
+      where: { cvId },
+      order: { createdAt: 'DESC' },
+      take: 20,
+    });
   }
 
   interviewQuestions(_cvId: string, _userId: string, _jobDescription: string) {

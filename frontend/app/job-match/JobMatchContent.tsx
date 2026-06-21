@@ -6,6 +6,7 @@ import {
   coverLetter,
   enhanceForJob,
   listCVs,
+  listAtsMatches,
   matchJob,
   type AtsMatchResult,
   type JobEnhanceResult,
@@ -15,6 +16,15 @@ import { ApiError } from '@/lib/api'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Sparkles, FileText } from 'lucide-react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from 'recharts'
 
 const GRADIENT = 'linear-gradient(to right, #7c3aed, #a855f7)'
 
@@ -43,6 +53,16 @@ export default function JobMatchContent() {
       setCvId(pick)
     })
   }, [initialCvId])
+
+  useEffect(() => {
+    if (!cvId) return
+    listAtsMatches(cvId)
+      .then((rows) => {
+        const scores = [...rows].reverse().map((r) => r.score)
+        if (scores.length) setScoreHistory(scores)
+      })
+      .catch(() => undefined)
+  }, [cvId])
 
   const runMatch = async () => {
     if (!cvId || !jd.trim()) return
@@ -284,7 +304,18 @@ export default function JobMatchContent() {
 
         {scoreHistory.length > 1 && (
           <div className="bg-white border border-purple-100 rounded-xl p-4">
-            <p className="text-xs font-medium text-gray-500 mb-2">Score history</p>
+            <p className="text-xs font-medium text-gray-500 mb-2">ATS score history</p>
+            <div className="h-36 mb-3">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={scoreHistory.map((score, i) => ({ run: i + 1, score }))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3e8ff" />
+                  <XAxis dataKey="run" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={28} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="score" stroke="#7c3aed" strokeWidth={2} dot />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
             <div className="flex gap-2 flex-wrap">
               {scoreHistory.map((s, i) => (
                 <span

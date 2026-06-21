@@ -1,6 +1,7 @@
 import { join } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -14,6 +15,8 @@ import { ExportModule } from './modules/export/export.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { ParserModule } from './modules/parser/parser.module';
 import { SharingModule } from './modules/sharing/sharing.module';
+import { StorageModule } from './modules/storage/storage.module';
+import { UsageModule } from './modules/usage/usage.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -24,6 +27,15 @@ import { UsersModule } from './modules/users/users.module';
       envFilePath: [join(process.cwd(), '.env'), join(__dirname, '..', '.env')],
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          url: configService.get<string>('REDIS_URL', 'redis://localhost:6379'),
+        },
+      }),
+    }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -50,6 +62,8 @@ import { UsersModule } from './modules/users/users.module';
     JobsModule,
     SharingModule,
     BillingModule,
+    StorageModule,
+    UsageModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

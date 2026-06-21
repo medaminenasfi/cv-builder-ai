@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/AppShell'
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis'
 import { CVCard } from '@/components/cv/CVCard'
 import { deleteCV, duplicateCV, listCVs, type CV } from '@/lib/cvs-api'
+import { listActiveTemplates, type Template } from '@/lib/templates-api'
 import { Plus, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -15,18 +16,26 @@ export default function DashboardPage() {
   const router = useRouter()
   const { user } = useAuth()
   const [cvs, setCVs] = useState<CV[]>([])
+  const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      setCVs(await listCVs())
+      const [cvList, tpls] = await Promise.all([listCVs(), listActiveTemplates()])
+      setCVs(cvList)
+      setTemplates(tpls)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load CVs')
     } finally {
       setLoading(false)
     }
   }, [])
+
+  const templateNameById = (id: string | null) => {
+    if (!id) return 'Default'
+    return templates.find((t) => t.id === id)?.name ?? 'Custom'
+  }
 
   useEffect(() => {
     load()
@@ -111,7 +120,7 @@ export default function DashboardPage() {
               cv={{
                 id: cv.id,
                 title: cv.title,
-                template: cv.templateId ?? 'Default',
+                template: templateNameById(cv.templateId),
                 lang: cv.locale.toUpperCase(),
                 ats_score: user?.plan === 'pro' ? 85 : 0,
                 last_edited: new Date(cv.updatedAt).toLocaleDateString(),

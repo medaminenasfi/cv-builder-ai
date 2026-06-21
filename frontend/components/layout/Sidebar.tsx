@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   LayoutDashboard,
   Briefcase,
@@ -10,6 +11,9 @@ import {
   Palette,
 } from 'lucide-react'
 import { useAuth } from '@/providers/AuthProvider'
+import { listCVs } from '@/lib/cvs-api'
+
+const FREE_CV_LIMIT = 3
 
 interface NavItem {
   icon: React.ReactNode
@@ -85,6 +89,14 @@ function NavLink({
 
 function DesktopSidebar({ activeId }: { activeId: string }) {
   const { user, logout } = useAuth()
+  const [cvCount, setCvCount] = useState(0)
+
+  useEffect(() => {
+    if (!user) return
+    listCVs()
+      .then((cvs) => setCvCount(cvs.length))
+      .catch(() => setCvCount(0))
+  }, [user])
 
   return (
     <aside className="hidden sm:flex fixed left-0 top-0 h-screen w-14 bg-white flex-col items-center border-r border-purple-100 z-40">
@@ -104,6 +116,17 @@ function DesktopSidebar({ activeId }: { activeId: string }) {
           <NavLink key={item.id} item={item} activeId={activeId} layout="sidebar" />
         ))}
       </nav>
+
+      {user?.plan === 'free' && (
+        <div
+          className="text-[9px] text-center text-purple-500 px-1 leading-tight mb-2"
+          title="Free plan CV quota"
+        >
+          {cvCount} / {FREE_CV_LIMIT}
+          <br />
+          resumes
+        </div>
+      )}
 
       <div className="w-full flex flex-col items-center gap-2 border-t border-purple-100 py-4 shrink-0">
         <div

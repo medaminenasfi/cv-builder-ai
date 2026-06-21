@@ -1,7 +1,7 @@
 'use client';
 
 import { AppShell } from '@/components/layout/AppShell';
-import { exportCVHtml, getCV } from '@/lib/cvs-api';
+import { exportCVHtml, exportCVPdf, getCV } from '@/lib/cvs-api';
 import { ApiError } from '@/lib/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -16,6 +16,7 @@ export default function CVPreviewPage() {
   const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,6 +52,19 @@ export default function CVPreviewPage() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadPdf = async () => {
+    setDownloadingPdf(true);
+    setError(null);
+    try {
+      const safeName = (title || 'resume').replace(/[^\w\-]+/g, '_').slice(0, 60);
+      await exportCVPdf(id, `${safeName}.pdf`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'PDF download failed');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   return (
     <AppShell title="CV Preview" fullBleed>
       <div className="sticky top-0 z-30 bg-white/95 border-b border-purple-100 backdrop-blur print:hidden">
@@ -69,12 +83,21 @@ export default function CVPreviewPage() {
             </Link>
             <button
               type="button"
-              onClick={printPdf}
-              disabled={!html}
+              onClick={() => void downloadPdf()}
+              disabled={!html || downloadingPdf}
               className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm rounded-lg disabled:opacity-50"
             >
+              <Download size={16} />
+              {downloadingPdf ? 'Generating…' : 'Download PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={printPdf}
+              disabled={!html}
+              className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg disabled:opacity-50"
+            >
               <Printer size={16} />
-              Save as PDF
+              Browser print
             </button>
             <button
               type="button"
@@ -119,7 +142,7 @@ export default function CVPreviewPage() {
       {html && (
         <div id="cv-print-root" className="min-h-screen bg-slate-200 py-6 print:bg-white print:py-0">
           <p className="text-center text-xs text-gray-500 mb-4 print:hidden">
-            A4 preview — use <strong>Save as PDF</strong> then choose &quot;Save as PDF&quot; in the print dialog
+            A4 preview — use <strong>Download PDF</strong> for server export, or <strong>Browser print</strong> as fallback
           </p>
           <iframe
             title="CV A4 preview"

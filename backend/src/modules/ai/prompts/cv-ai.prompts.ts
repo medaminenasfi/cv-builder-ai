@@ -8,14 +8,19 @@ Schema:
   "summary": "professional summary or profil paragraph",
   "experience": [{ "id", "company", "role", "startDate", "endDate", "bullets": ["each achievement"] }],
   "education": [{ "id", "institution", "degree", "startDate", "endDate" }],
-  "skills": [{ "id", "name" }]
+  "skills": [{ "id", "name" }],
+  "languages": [{ "id", "name", "level" }],
+  "technologies": [{ "id", "name" }],
+  "certifications": [{ "id", "name", "issuer", "date" }],
+  "projects": [{ "id", "name", "description", "bullets": [] }]
 }
 
 Rules:
-- Extract EVERY job, school, and skill from the text — do not skip sections
-- French CVs: map Profil→summary, Expérience→experience, Formation→education, Compétences→skills
-- Put each bullet point / line under a job into experience[].bullets (never leave bullets empty if text exists)
-- skills can be tools, languages, frameworks — include all from skills section
+- Extract EVERY job, school, language, technology, and skill — do not skip sections
+- French CVs: Profil→summary, Expérience→experience, Formation→education, Langues→languages, Compétences techniques/Outils→technologies, Compétences→skills
+- languages: spoken languages with level (e.g. Français — Courant, English — Fluent)
+- technologies: frameworks, tools, languages (React, Docker, Python) — NOT spoken languages
+- Put each bullet under a job into experience[].bullets
 - Copy dates and company names exactly; use "" if missing, never invent employers
 - Generate short unique ids for array items
 - Supports English and French resumes`;
@@ -27,7 +32,7 @@ export function cvParseUserMessage(rawText: string): string {
 ${buildParseTextPayload(rawText)}
 ---
 
-Return full JSON with personal, summary, experience[], education[], skills[].`;
+Return full JSON with personal, summary, experience[], education[], skills[], languages[], technologies[], certifications[], projects[].`;
 }
 
 export const CV_ATS_SYSTEM_PROMPT = `ATS analyst. Compare CV to job. JSON only: {"score":0-100,"breakdown":{"keywords":0,"format":0,"sections":0,"experience":0},"matchedKeywords":[],"missingKeywords":[],"suggestions":[]}`;

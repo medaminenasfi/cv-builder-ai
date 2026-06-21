@@ -45,3 +45,6 @@ lerna-debug.log*
 # temp directory
 .temp
 .tmp
+
+# Local uploads/exports
+/storage

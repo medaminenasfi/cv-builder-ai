@@ -98,6 +98,65 @@ function coerceSkills(raw: unknown): CVData['skills'] {
   return [];
 }
 
+function coerceNamedList(raw: unknown, withLevel = false): Array<{ id: string; name: string; level?: string }> {
+  return coerceSkills(raw).map((s) => ({
+    id: s.id,
+    name: s.name,
+    level: withLevel ? s.level : undefined,
+  }));
+}
+
+function coerceCertifications(raw: unknown): CVData['certifications'] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => {
+        if (typeof item === 'string') {
+          return { id: newCvId(), name: item.trim() };
+        }
+        if (item && typeof item === 'object') {
+          const o = item as LooseRecord;
+          const name = pickString(o.name, o.title, o.certification);
+          return name
+            ? {
+                id: pickString(o.id) || newCvId(),
+                name,
+                issuer: pickString(o.issuer, o.organization) || undefined,
+                date: pickString(o.date, o.year) || undefined,
+              }
+            : null;
+        }
+        return null;
+      })
+      .filter((c): c is CVData['certifications'][number] => Boolean(c?.name));
+  }
+  return [];
+}
+
+function coerceProjects(raw: unknown): CVData['projects'] {
+  if (!Array.isArray(raw)) return [];
+  const projects: CVData['projects'] = [];
+  for (const item of raw) {
+    if (typeof item === 'string') {
+      const name = item.trim();
+      if (name) projects.push({ id: newCvId(), name, bullets: [] });
+      continue;
+    }
+    if (item && typeof item === 'object') {
+      const o = item as LooseRecord;
+      const name = pickString(o.name, o.title, o.project);
+      if (!name) continue;
+      projects.push({
+        id: pickString(o.id) || newCvId(),
+        name,
+        description: pickString(o.description, o.summary) || undefined,
+        bullets: coerceBullets(o),
+      });
+    }
+  }
+  return projects;
+}
+
 /** Map varied AI / legacy JSON shapes into CVData partial before normalizeCVData. */
 export function coerceAiParseResult(raw: unknown): Partial<CVData> {
   if (!raw || typeof raw !== 'object') return {};
@@ -139,14 +198,38 @@ export function coerceAiParseResult(raw: unknown): Partial<CVData> {
   );
 
   const skillsRaw =
-    o.skills ?? o.competences ?? o.competencies ?? o.technicalSkills ?? o.technical_skills;
+    o.skills ?? o.softSkills ?? o.soft_skills;
+
+  const technologiesRaw =
+    o.technologies ??
+      o.tools ??
+      o.techStack ??
+      o.tech_stack ??
+      o.competencesTechniques ??
+      o.competences_techniques;
+
+  const languagesRaw = o.languages ?? o.langues ?? o.languageSkills;
+
+  const certificationsRaw = o.certifications ?? o.certificats ?? o.certificates;
+
+  const projectsRaw = o.projects ?? o.projets ?? o.personalProjects;
 
   return {
     personal,
     summary: summary || undefined,
     experience: experienceRaw.map(coerceExperienceEntry),
     education: educationRaw.map(coerceEducationEntry),
-    skills: coerceSkills(skillsRaw),
+    skills: coerceSkills(
+      asArray(skillsRaw).length ? skillsRaw : o.competences ?? o.competencies,
+    ),
+    languages: coerceNamedList(languagesRaw, true),
+    technologies: coerceNamedList(
+      asArray(technologiesRaw).length
+        ? technologiesRaw
+        : o.technicalSkills ?? o.technical_skills,
+    ).map(({ id, name }) => ({ id, name })),
+    certifications: coerceCertifications(certificationsRaw),
+    projects: coerceProjects(projectsRaw),
   };
 }
 

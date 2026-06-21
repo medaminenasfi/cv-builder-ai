@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { apiFetch, apiFetchBlob } from './api';
 import type { CVData } from './types/cv-data';
 
 export interface CV {
@@ -132,6 +132,38 @@ export function exportCVHtml(id: string) {
   return apiFetch<{ html: string }>(`/cvs/${id}/export/html`);
 }
 
+export async function exportCVPdf(id: string, filename = 'resume.pdf') {
+  const blob = await apiFetchBlob(`/cvs/${id}/export/pdf`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportCVDocx(id: string, filename = 'resume.docx') {
+  const blob = await apiFetchBlob(`/cvs/${id}/export/docx`);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function exportCVPdfUrl(id: string) {
+  return apiFetch<{ url: string; signedUrl: string; path: string; storage: string }>(
+    `/cvs/${id}/export/pdf/url`,
+  );
+}
+
+export function exportCVDocxUrl(id: string) {
+  return apiFetch<{ url: string; signedUrl: string; path: string; storage: string }>(
+    `/cvs/${id}/export/docx/url`,
+  );
+}
+
 export function previewCV(
   id: string,
   payload?: { data?: Record<string, unknown>; templateId?: string | null },
@@ -172,9 +204,60 @@ export function applyJobEnhancement(id: string, data: Record<string, unknown>) {
   });
 }
 
-export function coverLetter(id: string, jobDescription: string) {
-  return apiFetch<{ content: string }>(`/cvs/${id}/jobs/cover-letter`, {
+export function coverLetter(id: string, jobDescription: string, jobTitle?: string) {
+  return apiFetch<{ id: string; content: string }>(`/cvs/${id}/jobs/cover-letter`, {
     method: 'POST',
-    body: JSON.stringify({ jobDescription }),
+    body: JSON.stringify({ jobDescription, jobTitle }),
   });
+}
+
+export interface AtsMatchRecord {
+  id: string;
+  cvId: string;
+  score: number;
+  jobTitle: string | null;
+  jobDescription: string;
+  breakdown: AtsMatchResult['breakdown'];
+  analysisMode: string;
+  createdAt: string;
+}
+
+export function listAtsMatches(cvId: string) {
+  return apiFetch<AtsMatchRecord[]>(`/cvs/${cvId}/jobs/matches`);
+}
+
+export interface CoverLetterRecord {
+  id: string;
+  cvId: string;
+  content: string;
+  jobTitle: string | null;
+  jobDescription: string;
+  createdAt: string;
+}
+
+export function listCoverLetters(cvId: string) {
+  return apiFetch<CoverLetterRecord[]>(`/cvs/${cvId}/jobs/cover-letters`);
+}
+
+export function getAiUsage() {
+  return apiFetch<{ used: number; limit: number; remaining: number; date: string }>('/ai/usage');
+}
+
+export function importCVFileAsync(file: File, title?: string) {
+  const form = new FormData();
+  form.append('file', file);
+  if (title) form.append('title', title);
+  return apiFetch<{ jobId: string; status: string }>('/cvs/import/file/async', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export function getParseJob(jobId: string) {
+  return apiFetch<{
+    id: string;
+    status: string;
+    error: string | null;
+    result: Record<string, unknown> | null;
+  }>(`/cvs/import/jobs/${jobId}`);
 }

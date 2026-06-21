@@ -112,6 +112,46 @@ export async function apiFetch<T>(
   return response.json() as Promise<T>;
 }
 
+export async function apiFetchBlob(
+  path: string,
+  options: RequestInit = {},
+  scope: SessionScope = 'user',
+  retry = true,
+): Promise<Blob> {
+  const token = await getValidAccessToken(scope);
+
+  const headers = new Headers(options.headers);
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
+
+  if (response.status === 401 && retry && getRefreshToken(scope)) {
+    const newToken = await refreshAccessToken(scope);
+    if (newToken) {
+      return apiFetchBlob(path, options, scope, false);
+    }
+  }
+
+  if (!response.ok) {
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      data = undefined;
+    }
+    const message = formatApiErrorMessage(data, response.status);
+    throw new ApiError(message, response.status, data);
+  }
+
+  return response.blob();
+}
+
 /** Admin API calls — uses admin session only */
 export function apiFetchAdmin<T>(path: string, options: RequestInit = {}, retry = true) {
   return apiFetch<T>(path, options, 'admin', retry);

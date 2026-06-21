@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/auth.guards';
@@ -53,10 +53,20 @@ export class JobsController {
   @Post(':id/jobs/cover-letter')
   coverLetter(
     @Param('id') id: string,
-    @Body() body: { jobDescription: string },
+    @Body() body: { jobDescription: string; jobTitle?: string },
     @CurrentUser() user: UserEntity,
   ) {
-    return this.jobsService.coverLetter(id, user.id, body.jobDescription);
+    return this.jobsService.coverLetter(id, user.id, body.jobDescription, body.jobTitle);
+  }
+
+  @Get(':id/jobs/matches')
+  listMatches(@Param('id') id: string, @CurrentUser() user: UserEntity) {
+    return this.jobsService.listMatches(id, user.id);
+  }
+
+  @Get(':id/jobs/cover-letters')
+  listCoverLetters(@Param('id') id: string, @CurrentUser() user: UserEntity) {
+    return this.jobsService.listCoverLetters(id, user.id);
   }
 
   @Post(':id/jobs/interview-questions')

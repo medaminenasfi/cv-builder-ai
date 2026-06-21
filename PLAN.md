@@ -8,12 +8,17 @@
 |--------|--------|
 | M01 Auth | Done |
 | M01-Admin | Done |
-| M02 Templates | Partial |
-| M03 Multi-CV | Partial |
-| M04 Builder | In progress |
-| M05 Parser | In progress |
-| M07 AI enhancer | In progress |
-| M08 Job match + ATS | In progress |
+| M02 Templates | Done (seed + admin CRUD + RTL renderer + AI import) |
+| M03 Multi-CV | Done (3 free limit, auto-save 30s, 20 version cap) |
+| M04 Builder | Done (sections incl. languages/technologies, section picker, live preview) |
+| M05 Parser | Done (PDF/DOCX sync parse, languages/technologies extraction) |
+| M06 PDF Export | Done (Puppeteer server PDF + browser print fallback) |
+| M07 AI enhancer | Done (4 tones; quotas deferred) |
+| M08 Job match + ATS | Partial (AI + keyword fallback; DB/charts deferred) |
+| M09 i18n | Partial (CV locale + template headings; full UI deferred) |
+| M10 Cover letter | Partial (API stub) |
+| M11 Sharing | Done (persisted share links) |
+| M12 Stripe | Not started |
 
 **Ports:** API `3002`, PostgreSQL Docker `55432`, Frontend `3000`
 

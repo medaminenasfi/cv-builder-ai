@@ -15,3 +15,6 @@ h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #7c
 .experience-item h3 { margin: 0 0 4px; font-size: 15px; }
 .dates { color: #888; font-size: 12px; margin: 0 0 8px; }
 .skill { display: inline-block; background: #f3e8ff; color: #6d28d9; padding: 2px 8px; border-radius: 4px; margin: 2px; font-size: 12px; }
+.language { display: inline-block; background: #ede9fe; color: #5b21b6; padding: 2px 10px; border-radius: 4px; margin: 2px 4px 2px 0; font-size: 12px; }
+.skill.tech { background: #ecfdf5; color: #047857; }
+.cv-section:empty, section:has(h2 + :empty:last-child) { display: none; }

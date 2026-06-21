@@ -2,17 +2,28 @@
 
 import { AppShell } from '@/components/layout/AppShell';
 import { CVLivePreview } from '@/components/cv/CVLivePreview';
+import { RichTextSummary } from '@/components/cv/RichTextSummary';
 import {
+  DEFAULT_SECTIONS,
   emptyCVData,
   newId,
   normalizeCVData,
+  parseLanguagesInput,
   parseSkillsInput,
+  parseTechnologiesInput,
+  parseCertificationsInput,
+  parseProjectsInput,
   skillsToInput,
+  languagesToInput,
+  technologiesToInput,
+  certificationsToInput,
+  projectsToInput,
 } from '@/lib/cv-data-utils';
 import {
   applyEnhancement,
   enhanceCV,
   exportCVHtml,
+  exportCVPdf,
   getCV,
   importCVFileIntoExisting,
   updateCV,
@@ -24,8 +35,9 @@ import { ApiError } from '@/lib/api';
 import { useAuth } from '@/providers/AuthProvider';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Save, Sparkles, Download, ChevronDown, Briefcase, FileUp, Eye, Printer } from 'lucide-react';
+import { useAutoSave } from '@/lib/use-auto-save';
 
 function Section({
   title,
@@ -85,6 +97,10 @@ export default function CVEditorPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [cvData, setCvData] = useState<CVData>(() => emptyCVData('en'));
   const [skillsText, setSkillsText] = useState('');
+  const [languagesText, setLanguagesText] = useState('');
+  const [technologiesText, setTechnologiesText] = useState('');
+  const [certificationsText, setCertificationsText] = useState('');
+  const [projectsText, setProjectsText] = useState('');
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -92,6 +108,7 @@ export default function CVEditorPage() {
   const [tone, setTone] = useState<'professional' | 'creative' | 'technical' | 'academic'>('professional');
   const [enhancing, setEnhancing] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,6 +134,10 @@ export default function CVEditorPage() {
 
       setCvData(normalized);
       setSkillsText(skillsToInput(normalized.skills));
+      setLanguagesText(languagesToInput(normalized.languages));
+      setTechnologiesText(technologiesToInput(normalized.technologies));
+      setCertificationsText(certificationsToInput(normalized.certifications));
+      setProjectsText(projectsToInput(normalized.projects));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load CV');
     } finally {
@@ -136,18 +157,56 @@ export default function CVEditorPage() {
     setCvData((prev) => ({ ...prev, personal: { ...prev.personal, ...patch } }));
   };
 
+  const buildDataToSave = (): CVData => ({
+    ...cvData,
+    skills: parseSkillsInput(skillsText),
+    languages: parseLanguagesInput(languagesText),
+    technologies: parseTechnologiesInput(technologiesText),
+    certifications: parseCertificationsInput(certificationsText),
+    projects: parseProjectsInput(projectsText),
+  });
+
+  const saveSnapshot = useMemo(
+    () =>
+      JSON.stringify({
+        title,
+        templateId,
+        data: buildDataToSave(),
+      }),
+    [title, templateId, cvData, skillsText, languagesText, technologiesText, certificationsText, projectsText],
+  );
+
+  const autoSavePayload = useCallback(async () => {
+    const dataToSave = buildDataToSave();
+    await updateCV(id, { title, templateId: templateId ?? undefined });
+    await updateCVData(id, dataToSave);
+    setCvData(dataToSave);
+  }, [id, title, templateId, cvData, skillsText, languagesText, technologiesText, certificationsText, projectsText]);
+
+  const { status: autoSaveStatus, markSaved } = useAutoSave({
+    enabled: !loading,
+    snapshot: saveSnapshot,
+    onSave: autoSavePayload,
+  });
+
+  const didInitialMark = useRef(false);
+  useEffect(() => {
+    if (!loading && !didInitialMark.current) {
+      didInitialMark.current = true;
+      markSaved(saveSnapshot);
+    }
+  }, [loading, saveSnapshot, markSaved]);
+
   const save = async () => {
     setSaving(true);
     setMessage(null);
     setError(null);
     try {
-      const dataToSave: CVData = {
-        ...cvData,
-        skills: parseSkillsInput(skillsText),
-      };
+      const dataToSave = buildDataToSave();
       await updateCV(id, { title, templateId: templateId ?? undefined });
       await updateCVData(id, dataToSave);
       setCvData(dataToSave);
+      markSaved(saveSnapshot);
       setMessage('Saved successfully');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Save failed');
@@ -165,6 +224,10 @@ export default function CVEditorPage() {
       await applyEnhancement(id, result.after as unknown as Record<string, unknown>);
       setCvData(result.after);
       setSkillsText(skillsToInput(result.after.skills));
+      setLanguagesText(languagesToInput(result.after.languages));
+      setTechnologiesText(technologiesToInput(result.after.technologies));
+      setCertificationsText(certificationsToInput(result.after.certifications));
+      setProjectsText(projectsToInput(result.after.projects));
       setMessage(`CV enhanced (${tone} tone) — review changes`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Enhance failed');
@@ -199,6 +262,21 @@ export default function CVEditorPage() {
       };
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Export failed');
+    }
+  };
+
+  const downloadPdf = async () => {
+    setDownloadingPdf(true);
+    setError(null);
+    try {
+      await save();
+      const safeName = (title || 'resume').replace(/[^\w\-]+/g, '_').slice(0, 60);
+      await exportCVPdf(id, `${safeName}.pdf`);
+      setMessage('PDF downloaded');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'PDF download failed');
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -271,9 +349,16 @@ export default function CVEditorPage() {
     patchData({ education: cvData.education.filter((_, i) => i !== index) });
   };
 
-  const previewData: CVData = {
-    ...cvData,
-    skills: parseSkillsInput(skillsText),
+  const previewData: CVData = buildDataToSave();
+
+  const toggleSection = (key: string) => {
+    setCvData((prev) => {
+      const current = prev.meta.sections ?? [...DEFAULT_SECTIONS];
+      const next = current.includes(key)
+        ? current.filter((s) => s !== key)
+        : [...current, key];
+      return { ...prev, meta: { ...prev.meta, sections: next } };
+    });
   };
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
@@ -290,7 +375,13 @@ export default function CVEditorPage() {
     <AppShell
       title="Edit CV"
       actions={
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500 hidden sm:inline">
+            {autoSaveStatus === 'saving' && 'Saving…'}
+            {autoSaveStatus === 'dirty' && 'Unsaved changes'}
+            {autoSaveStatus === 'saved' && 'All saved'}
+            {autoSaveStatus === 'error' && 'Auto-save failed'}
+          </span>
           <button
             type="button"
             onClick={save}
@@ -362,12 +453,24 @@ export default function CVEditorPage() {
                     type="button"
                     onClick={() => {
                       setExportOpen(false);
+                      void downloadPdf();
+                    }}
+                    disabled={downloadingPdf}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left disabled:opacity-50"
+                  >
+                    <Download size={14} />
+                    {downloadingPdf ? 'Generating PDF…' : 'Download PDF'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportOpen(false);
                       printPdf();
                     }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
                   >
                     <Printer size={14} />
-                    Save as PDF
+                    Browser print
                   </button>
                 </div>
               </>
@@ -442,6 +545,27 @@ export default function CVEditorPage() {
                 onChange={(e) => handleImportFile(e.target.files?.[0])}
               />
             </div>
+            <Field label="Visible sections">
+              <div className="flex flex-wrap gap-2 mt-1">
+                {DEFAULT_SECTIONS.map((key) => {
+                  const active = cvData.meta.sections?.includes(key) ?? true;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => toggleSection(key)}
+                      className={`text-[10px] px-2 py-1 rounded-full border capitalize ${
+                        active
+                          ? 'bg-purple-100 border-purple-200 text-purple-700'
+                          : 'bg-gray-50 border-gray-200 text-gray-400'
+                      }`}
+                    >
+                      {key}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
           </Section>
 
           <Section title="Personal Info">
@@ -508,11 +632,9 @@ export default function CVEditorPage() {
           </Section>
 
           <Section title="Summary / Profil">
-            <textarea
+            <RichTextSummary
               value={cvData.summary ?? ''}
-              onChange={(e) => patchData({ summary: e.target.value })}
-              rows={5}
-              className={inputCls}
+              onChange={(text) => patchData({ summary: text })}
               placeholder="Professional summary…"
             />
           </Section>
@@ -644,9 +766,53 @@ export default function CVEditorPage() {
               onChange={(e) => setSkillsText(e.target.value)}
               rows={3}
               className={inputCls}
-              placeholder="React, Node.js, PostgreSQL, Docker…"
+              placeholder="Communication, teamwork, problem solving…"
             />
-            <p className="text-[10px] text-gray-400">Separate with commas or new lines</p>
+            <p className="text-[10px] text-gray-400">Soft skills — separate with commas</p>
+          </Section>
+
+          <Section title="Languages">
+            <textarea
+              value={languagesText}
+              onChange={(e) => setLanguagesText(e.target.value)}
+              rows={4}
+              className={inputCls}
+              placeholder={'Français — Courant\nEnglish — Fluent\nالعربية — Intermédiaire'}
+            />
+            <p className="text-[10px] text-gray-400">One per line: Language — Level</p>
+          </Section>
+
+          <Section title="Technologies">
+            <textarea
+              value={technologiesText}
+              onChange={(e) => setTechnologiesText(e.target.value)}
+              rows={4}
+              className={inputCls}
+              placeholder="React, Node.js, Docker, PostgreSQL, Python…"
+            />
+            <p className="text-[10px] text-gray-400">Tools & frameworks — separate with commas</p>
+          </Section>
+
+          <Section title="Certifications" defaultOpen={false}>
+            <textarea
+              value={certificationsText}
+              onChange={(e) => setCertificationsText(e.target.value)}
+              rows={4}
+              className={inputCls}
+              placeholder={'AWS Solutions Architect — Amazon — 2023\nPMP — PMI — 2022'}
+            />
+            <p className="text-[10px] text-gray-400">One per line: Name — Issuer — Date</p>
+          </Section>
+
+          <Section title="Projects" defaultOpen={false}>
+            <textarea
+              value={projectsText}
+              onChange={(e) => setProjectsText(e.target.value)}
+              rows={6}
+              className={inputCls}
+              placeholder={'E-commerce Platform — Built with React\n- Increased conversion 20%\n- Integrated Stripe'}
+            />
+            <p className="text-[10px] text-gray-400">Project blocks: title line, then bullet lines starting with -</p>
           </Section>
         </div>
 

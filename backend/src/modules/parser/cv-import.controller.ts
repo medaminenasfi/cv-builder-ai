@@ -44,6 +44,7 @@ export class CVImportController {
       user,
       file.buffer,
       file.mimetype,
+      file.originalname,
     );
   }
 }

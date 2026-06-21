@@ -10,8 +10,16 @@ import {
   emptyCVData,
   newId,
   normalizeCVData,
+  parseLanguagesInput,
   parseSkillsInput,
+  parseTechnologiesInput,
+  parseCertificationsInput,
+  parseProjectsInput,
   skillsToInput,
+  languagesToInput,
+  technologiesToInput,
+  certificationsToInput,
+  projectsToInput,
 } from '@/lib/cv-data-utils'
 import { listActiveTemplates, type Template } from '@/lib/templates-api'
 import type { CVData, CVExperience, CVEducation } from '@/lib/types/cv-data'
@@ -26,6 +34,10 @@ const STEPS = [
   'Experience',
   'Education',
   'Skills',
+  'Languages',
+  'Technologies',
+  'Certifications',
+  'Projects',
   'Template',
 ] as const
 
@@ -46,6 +58,10 @@ export default function CVReviewPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [cvData, setCvData] = useState<CVData>(() => emptyCVData('en'))
   const [skillsText, setSkillsText] = useState('')
+  const [languagesText, setLanguagesText] = useState('')
+  const [technologiesText, setTechnologiesText] = useState('')
+  const [certificationsText, setCertificationsText] = useState('')
+  const [projectsText, setProjectsText] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,6 +75,10 @@ export default function CVReviewPage() {
       const normalized = normalizeCVData(cv.data, locale)
       setCvData(normalized)
       setSkillsText(skillsToInput(normalized.skills))
+      setLanguagesText(languagesToInput(normalized.languages))
+      setTechnologiesText(technologiesToInput(normalized.technologies))
+      setCertificationsText(certificationsToInput(normalized.certifications))
+      setProjectsText(projectsToInput(normalized.projects))
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load CV')
     } finally {
@@ -82,6 +102,10 @@ export default function CVReviewPage() {
     const dataToSave: CVData = {
       ...cvData,
       skills: parseSkillsInput(skillsText),
+      languages: parseLanguagesInput(languagesText),
+      technologies: parseTechnologiesInput(technologiesText),
+      certifications: parseCertificationsInput(certificationsText),
+      projects: parseProjectsInput(projectsText),
     }
     await updateCV(id, { title, templateId: templateId ?? undefined })
     await updateCVData(id, dataToSave)
@@ -322,17 +346,66 @@ export default function CVReviewPage() {
           )}
 
           {step === 4 && (
-            <Field label="Skills (comma or newline separated)">
+            <Field label="Skills (soft skills, comma separated)">
               <textarea
                 value={skillsText}
                 onChange={(e) => setSkillsText(e.target.value)}
-                rows={5}
+                rows={4}
                 className={inputCls}
+                placeholder="Communication, teamwork…"
               />
             </Field>
           )}
 
           {step === 5 && (
+            <Field label="Languages (one per line: Language — Level)">
+              <textarea
+                value={languagesText}
+                onChange={(e) => setLanguagesText(e.target.value)}
+                rows={5}
+                className={inputCls}
+                placeholder={'Français — Courant\nEnglish — Fluent'}
+              />
+            </Field>
+          )}
+
+          {step === 6 && (
+            <Field label="Technologies (frameworks & tools)">
+              <textarea
+                value={technologiesText}
+                onChange={(e) => setTechnologiesText(e.target.value)}
+                rows={5}
+                className={inputCls}
+                placeholder="React, Node.js, Docker, PostgreSQL…"
+              />
+            </Field>
+          )}
+
+          {step === 7 && (
+            <Field label="Certifications (Name — Issuer — Date)">
+              <textarea
+                value={certificationsText}
+                onChange={(e) => setCertificationsText(e.target.value)}
+                rows={5}
+                className={inputCls}
+                placeholder={'AWS Solutions Architect — Amazon — 2023'}
+              />
+            </Field>
+          )}
+
+          {step === 8 && (
+            <Field label="Projects">
+              <textarea
+                value={projectsText}
+                onChange={(e) => setProjectsText(e.target.value)}
+                rows={6}
+                className={inputCls}
+                placeholder={'Portfolio Site — Next.js\n- Built admin dashboard'}
+              />
+            </Field>
+          )}
+
+          {step === 9 && (
             <Field label="Choose a template (optional)">
               <select
                 value={templateId ?? ''}

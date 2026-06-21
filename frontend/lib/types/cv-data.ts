@@ -23,6 +23,31 @@ export interface CVSkill {
   level?: string;
 }
 
+export interface CVLanguage {
+  id: string;
+  name: string;
+  level?: string;
+}
+
+export interface CVTechnology {
+  id: string;
+  name: string;
+}
+
+export interface CVCertification {
+  id: string;
+  name: string;
+  issuer?: string;
+  date?: string;
+}
+
+export interface CVProject {
+  id: string;
+  name: string;
+  description?: string;
+  bullets?: string[];
+}
+
 export interface CVData {
   meta: {
     locale: CVLocale;
@@ -43,4 +68,8 @@ export interface CVData {
   experience: CVExperience[];
   education: CVEducation[];
   skills: CVSkill[];
+  languages: CVLanguage[];
+  technologies: CVTechnology[];
+  certifications: CVCertification[];
+  projects: CVProject[];
 }

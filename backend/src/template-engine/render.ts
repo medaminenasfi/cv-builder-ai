@@ -43,10 +43,14 @@ const SAMPLE: CVData = {
   skills: [
     { id: '1', name: 'React.js' },
     { id: '2', name: 'Next.js' },
-    { id: '3', name: 'Node.js' },
-    { id: '4', name: 'PostgreSQL' },
-    { id: '5', name: 'Docker' },
   ],
+  languages: [{ id: '1', name: 'Français', level: 'Courant' }],
+  technologies: [
+    { id: '1', name: 'Node.js' },
+    { id: '2', name: 'Docker' },
+  ],
+  certifications: [],
+  projects: [],
 };
 
 function escapeHtml(text: string): string {
@@ -125,6 +129,67 @@ function renderSkills(data: CVData): string {
     .join('');
 }
 
+function renderTechnologies(data: CVData): string {
+  return data.technologies
+    .map((t) => `<span class="skill tech">${escapeHtml(t.name)}</span>`)
+    .join('');
+}
+
+function renderLanguages(data: CVData): string {
+  return data.languages
+    .map((l) => {
+      const label = l.level ? `${l.name} — ${l.level}` : l.name;
+      return `<span class="language">${escapeHtml(label)}</span>`;
+    })
+    .join('');
+}
+
+function renderCertifications(data: CVData): string {
+  if (!data.certifications.length) return '';
+  return data.certifications
+    .map((c) => {
+      const meta = [c.issuer, c.date].filter(Boolean).join(' · ');
+      return `<div class="cert-item"><strong>${escapeHtml(c.name)}</strong>${meta ? `<span class="cert-meta"> — ${escapeHtml(meta)}</span>` : ''}</div>`;
+    })
+    .join('');
+}
+
+function renderProjects(data: CVData): string {
+  if (!data.projects.length) return '';
+  return data.projects
+    .map((p) => {
+      const bullets =
+        p.bullets && p.bullets.length
+          ? `<ul>${p.bullets.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`
+          : '';
+      const desc = p.description ? `<p>${escapeHtml(p.description)}</p>` : '';
+      return `<div class="project-item"><strong>${escapeHtml(p.name)}</strong>${desc}${bullets}</div>`;
+    })
+    .join('');
+}
+
+const SECTION_TITLES: Record<string, Record<'en' | 'fr' | 'ar', string>> = {
+  summary: { en: 'Summary', fr: 'Profil', ar: 'الملخص' },
+  experience: { en: 'Experience', fr: 'Expérience', ar: 'الخبرة' },
+  education: { en: 'Education', fr: 'Formation', ar: 'التعليم' },
+  skills: { en: 'Skills', fr: 'Compétences', ar: 'المهارات' },
+  languages: { en: 'Languages', fr: 'Langues', ar: 'اللغات' },
+  technologies: { en: 'Technologies', fr: 'Technologies', ar: 'التقنيات' },
+  certifications: { en: 'Certifications', fr: 'Certifications', ar: 'الشهادات' },
+  projects: { en: 'Projects', fr: 'Projets', ar: 'المشاريع' },
+};
+
+function sectionTitle(key: string, locale: string): string {
+  const loc = (locale === 'fr' || locale === 'ar' ? locale : 'en') as 'en' | 'fr' | 'ar';
+  return SECTION_TITLES[key]?.[loc] ?? SECTION_TITLES[key]?.en ?? key;
+}
+
+function isSectionVisible(data: CVData, key: string): boolean {
+  const sections = data.meta?.sections;
+  if (!sections?.length) return true;
+  return sections.includes(key);
+}
+
 export function renderTemplate(
   htmlStructure: string,
   css: string,
@@ -135,6 +200,8 @@ export function renderTemplate(
     options.direction ?? cvData.meta.direction ?? 'ltr';
 
   const useFallback = !htmlStructure.trim() || !htmlStructure.includes('{{');
+
+  const locale = (options.locale ?? cvData.meta.locale ?? 'en') as string;
 
   let body = htmlStructure
     .replace(/\{\{fullName\}\}/g, escapeHtml(cvData.personal.fullName))
@@ -148,19 +215,41 @@ export function renderTemplate(
     .replace(/\{\{summary\}\}/g, escapeHtml(cvData.summary ?? ''))
     .replace(/\{\{education\}\}/g, renderEducation(cvData))
     .replace(/\{\{experience\}\}/g, renderExperience(cvData))
-    .replace(/\{\{skills\}\}/g, renderSkills(cvData));
+    .replace(/\{\{skills\}\}/g, renderSkills(cvData))
+    .replace(/\{\{languages\}\}/g, renderLanguages(cvData))
+    .replace(/\{\{technologies\}\}/g, renderTechnologies(cvData))
+    .replace(/\{\{certifications\}\}/g, renderCertifications(cvData))
+    .replace(/\{\{projects\}\}/g, renderProjects(cvData));
+
+  for (const key of Object.keys(SECTION_TITLES)) {
+    body = body.replace(
+      new RegExp(`\\{\\{${key}Title\\}\\}`, 'g'),
+      sectionTitle(key, locale),
+    );
+  }
 
   if (useFallback) {
+    const loc = locale;
     const educationBlock = cvData.education.length
-      ? `<section><h2>Education</h2>${renderEducation(cvData)}</section>`
+      ? `<section><h2>${sectionTitle('education', loc)}</h2>${renderEducation(cvData)}</section>`
       : '';
+    const langBlock =
+      cvData.languages.length && isSectionVisible(cvData, 'languages')
+        ? `<section><h2>${sectionTitle('languages', loc)}</h2>${renderLanguages(cvData)}</section>`
+        : '';
+    const techBlock =
+      cvData.technologies.length && isSectionVisible(cvData, 'technologies')
+        ? `<section><h2>${sectionTitle('technologies', loc)}</h2>${renderTechnologies(cvData)}</section>`
+        : '';
     body = `
       <div class="cv-root">
         <header><h1>${escapeHtml(cvData.personal.fullName)}</h1><p>${escapeHtml(cvData.personal.title)}</p></header>
-        ${cvData.summary ? `<section><h2>Summary</h2><p>${escapeHtml(cvData.summary)}</p></section>` : ''}
+        ${cvData.summary ? `<section><h2>${sectionTitle('summary', loc)}</h2><p>${escapeHtml(cvData.summary)}</p></section>` : ''}
         ${educationBlock}
-        <section><h2>Experience</h2>${renderExperience(cvData)}</section>
-        <section><h2>Skills</h2>${renderSkills(cvData)}</section>
+        <section><h2>${sectionTitle('experience', loc)}</h2>${renderExperience(cvData)}</section>
+        ${langBlock}
+        ${techBlock}
+        <section><h2>${sectionTitle('skills', loc)}</h2>${renderSkills(cvData)}</section>
       </div>`;
   }
 

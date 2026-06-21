@@ -14,6 +14,8 @@ import { CVEntity } from './entities/cv.entity';
 
 @Injectable()
 export class CVsService {
+  private static readonly MAX_VERSIONS = 20;
+
   constructor(
     @InjectRepository(CVEntity)
     private readonly cvsRepository: Repository<CVEntity>,
@@ -86,7 +88,9 @@ export class CVsService {
     dto: UpdateCVDataDto,
     source: CVVersionSource = CVVersionSource.MANUAL,
   ): Promise<CVVersionEntity> {
-    await this.findById(id, userId);
+    const cv = await this.findById(id, userId);
+    cv.updatedAt = new Date();
+    await this.cvsRepository.save(cv);
     return this.createVersion(id, dto.data, source);
   }
 
@@ -141,8 +145,19 @@ export class CVsService {
   ): Promise<CVVersionEntity> {
     const latest = await this.getLatestVersion(cvId);
     const versionNumber = (latest?.versionNumber ?? 0) + 1;
-    return this.versionsRepository.save(
+    const saved = await this.versionsRepository.save(
       this.versionsRepository.create({ cvId, data, source, versionNumber }),
     );
+    await this.trimVersions(cvId);
+    return saved;
+  }
+
+  private async trimVersions(cvId: string): Promise<void> {
+    const versions = await this.versionsRepository.find({
+      where: { cvId },
+      order: { versionNumber: 'DESC' },
+    });
+    if (versions.length <= CVsService.MAX_VERSIONS) return;
+    await this.versionsRepository.remove(versions.slice(CVsService.MAX_VERSIONS));
   }
 }
