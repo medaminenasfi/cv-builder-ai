@@ -1,42 +1,350 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { normalizeCVData, type CVData } from '../../common/cv-schema';
+import {
+  computeKeywordScore,
+  computeSectionScore,
+  cvTextBlob,
+  extractJobKeywords,
+  formatSkillName,
+  isEnhanceableKeyword,
+  keywordPresentInCv,
+  matchKeywordsToCv,
+} from '../../common/job-keywords.util';
+import { newCvId, parseAiJson } from '../ai/ai-json.util';
+import {
+  CV_ATS_SYSTEM_PROMPT,
+  compactCvForAts,
+  compactCvForEnhance,
+  cvAtsUserMessage,
+  cvCoverLetterSystemPrompt,
+  cvCoverLetterUserMessage,
+  cvKeywordEnhanceSystemPrompt,
+  cvKeywordEnhanceUserMessage,
+} from '../ai/prompts/cv-ai.prompts';
+import { OpenRouterService, isOpenRouterCreditsError } from '../ai/openrouter.service';
 import { CVsService } from '../cvs/cvs.service';
+import { CVVersionSource } from '../cvs/entities/cv-version.entity';
+
+export interface AtsMatchResult {
+  score: number;
+  breakdown: {
+    keywords: number;
+    format: number;
+    sections: number;
+    experience: number;
+  };
+  matchedKeywords: string[];
+  missingKeywords: string[];
+  suggestions: string[];
+  gaps?: string[];
+  /** ai = OpenRouter analysis; keyword = local fallback when credits unavailable */
+  analysisMode?: 'ai' | 'keyword';
+}
+
+interface KeywordEnhancePatch {
+  summary?: string;
+  experienceUpdates?: Array<{ id: string; bullets: string[] }>;
+  skillNames?: string[];
+  experience?: Array<{ id: string; bullets?: string[] }>;
+  skills?: Array<{ id?: string; name: string }>;
+}
 
 @Injectable()
 export class JobsService {
-  constructor(private readonly cvsService: CVsService) {}
+  private readonly logger = new Logger(JobsService.name);
 
-  async match(cvId: string, userId: string, jobDescription: string) {
-    await this.cvsService.findById(cvId, userId);
+  constructor(
+    private readonly cvsService: CVsService,
+    private readonly openRouter: OpenRouterService,
+  ) {}
+
+  private async getCvData(cvId: string, userId: string): Promise<CVData> {
     const version = await this.cvsService.getLatestVersion(cvId);
-    const skills = ((version?.data as { skills?: { name: string }[] })?.skills ?? []).map(
-      (s) => s.name.toLowerCase(),
+    if (!version) {
+      await this.cvsService.findById(cvId, userId);
+      throw new NotFoundException('CV has no data');
+    }
+    await this.cvsService.findById(cvId, userId);
+    return normalizeCVData(version.data);
+  }
+
+  async match(
+    cvId: string,
+    userId: string,
+    jobDescription: string,
+    _jobTitle?: string,
+  ): Promise<AtsMatchResult> {
+    const cvData = await this.getCvData(cvId, userId);
+    const cvJson = compactCvForAts(cvData);
+
+    try {
+      const raw = await this.openRouter.chat(
+        CV_ATS_SYSTEM_PROMPT,
+        cvAtsUserMessage(cvJson, jobDescription),
+      );
+
+      const parsed = parseAiJson<{
+        score?: number;
+        breakdown?: AtsMatchResult['breakdown'];
+        matchedKeywords?: string[];
+        missingKeywords?: string[];
+        suggestions?: string[];
+      }>(raw);
+
+      const missingKeywords = parsed.missingKeywords ?? [];
+      return {
+        score: Math.min(100, Math.max(0, Math.round(parsed.score ?? 0))),
+        breakdown: parsed.breakdown ?? {
+          keywords: 0,
+          format: 85,
+          sections: 90,
+          experience: 80,
+        },
+        matchedKeywords: parsed.matchedKeywords ?? [],
+        missingKeywords,
+        suggestions: parsed.suggestions ?? [],
+        gaps: missingKeywords,
+        analysisMode: 'ai',
+      };
+    } catch (err) {
+      if (isOpenRouterCreditsError(err)) {
+        this.logger.warn('ATS match using keyword fallback — OpenRouter credits low');
+        return this.fallbackMatch(cvData, jobDescription);
+      }
+      if (err instanceof BadGatewayException) throw err;
+      return this.fallbackMatch(cvData, jobDescription);
+    }
+  }
+
+  private fallbackMatch(cvData: CVData, jobDescription: string): AtsMatchResult {
+    const keywords = extractJobKeywords(jobDescription);
+    const { matched, missing } = matchKeywordsToCv(cvData, keywords);
+    const keywordScore = computeKeywordScore(matched.length, keywords.length);
+    const sectionScore = computeSectionScore(cvData);
+    const experienceScore = cvData.experience.length > 0 ? 80 : 40;
+    const overall = Math.round(
+      keywordScore * 0.55 + sectionScore * 0.25 + experienceScore * 0.2,
     );
-    const keywords = jobDescription
-      .toLowerCase()
-      .match(/\b[a-z]{3,}\b/g)
-      ?.slice(0, 30) ?? [];
-    const matched = keywords.filter((k) => skills.some((s) => s.includes(k) || k.includes(s)));
-    const score = Math.min(100, Math.round((matched.length / Math.max(keywords.length, 1)) * 100));
+
+    const suggestions: string[] = [];
+    if (missing.length > 0) {
+      suggestions.push(
+        `Add these job-relevant terms to skills and experience: ${missing.slice(0, 6).join(', ')}`,
+      );
+    }
+    if (keywordScore < 40) {
+      suggestions.push(
+        'Your CV stack may differ from this role — highlight transferable skills (e.g. full-stack, databases, deployment).',
+      );
+    }
 
     return {
-      score,
+      score: overall,
       breakdown: {
-        keywords: { matched: matched.length, total: keywords.length },
+        keywords: keywordScore,
         format: 85,
-        sections: 90,
+        sections: sectionScore,
+        experience: experienceScore,
       },
-      gaps: keywords.filter((k) => !matched.includes(k)).slice(0, 10),
-      matchedSkills: matched,
+      matchedKeywords: matched,
+      missingKeywords: missing.slice(0, 15),
+      suggestions,
+      gaps: missing.slice(0, 15),
+      analysisMode: 'keyword',
     };
   }
 
-  coverLetter(cvId: string, userId: string, jobDescription: string) {
-    return {
-      content: `Dear Hiring Manager,\n\nI am excited to apply for this role. My experience aligns with your requirements.\n\nJob context: ${jobDescription.slice(0, 200)}...\n\nSincerely,\n[Your Name]`,
-    };
+  private applyEnhancementPatch(
+    before: CVData,
+    parsed: KeywordEnhancePatch,
+  ): CVData {
+    const after = normalizeCVData({ ...before });
+
+    if (typeof parsed.summary === 'string' && parsed.summary.trim()) {
+      after.summary = parsed.summary.trim();
+    }
+
+    const experienceUpdates =
+      parsed.experienceUpdates ??
+      (Array.isArray(parsed.experience)
+        ? parsed.experience
+            .filter((e) => e.id && Array.isArray(e.bullets))
+            .map((e) => ({ id: e.id, bullets: e.bullets! }))
+        : []);
+
+    if (experienceUpdates.length) {
+      after.experience = before.experience.map((exp) => {
+        const updated = experienceUpdates.find((p) => p.id === exp.id);
+        if (updated?.bullets?.length) {
+          return { ...exp, bullets: updated.bullets };
+        }
+        return exp;
+      });
+    }
+
+    const skillNames =
+      parsed.skillNames ??
+      (Array.isArray(parsed.skills)
+        ? parsed.skills.map((s) => s.name).filter(Boolean)
+        : []);
+
+    if (skillNames.length) {
+      const existing = new Set(after.skills.map((s) => s.name.toLowerCase()));
+      for (const name of skillNames) {
+        const trimmed = name.trim();
+        if (!trimmed || existing.has(trimmed.toLowerCase())) continue;
+        after.skills.push({ id: newCvId(), name: trimmed, level: 'intermediate' });
+        existing.add(trimmed.toLowerCase());
+      }
+    }
+
+    return after;
   }
 
-  interviewQuestions(cvId: string, userId: string, jobDescription: string) {
+  private fallbackEnhancement(
+    before: CVData,
+    jobDescription: string,
+    missingFromMatch: string[],
+  ): CVData {
+    const fromJd = extractJobKeywords(jobDescription);
+    const blob = cvTextBlob(before);
+    const toAdd = [...new Set([...missingFromMatch, ...fromJd])]
+      .filter((kw) => isEnhanceableKeyword(kw) && !keywordPresentInCv(blob, kw))
+      .slice(0, 10);
+
+    const after = normalizeCVData({ ...before });
+
+    if (toAdd.length) {
+      const phrase = toAdd.slice(0, 6).join(', ');
+      const currentSummary = after.summary?.trim() ?? '';
+      if (currentSummary) {
+        after.summary = `${currentSummary} Technical exposure includes: ${phrase}.`;
+      } else {
+        after.summary = `Full-stack developer with experience in ${phrase}.`;
+      }
+
+      const existing = new Set(after.skills.map((s) => s.name.toLowerCase()));
+      for (const kw of toAdd) {
+        const name = formatSkillName(kw);
+        if (!existing.has(name.toLowerCase())) {
+          after.skills.push({ id: newCvId(), name, level: 'intermediate' });
+          existing.add(name.toLowerCase());
+        }
+      }
+
+      if (after.experience.length > 0 && toAdd.length > 0) {
+        const exp = after.experience[0];
+        const bullet = `Applied ${toAdd.slice(0, 3).join(', ')} in production projects where relevant.`;
+        if (!(exp.bullets ?? []).some((b) => b.toLowerCase().includes(toAdd[0].toLowerCase()))) {
+          after.experience = [
+            { ...exp, bullets: [...(exp.bullets ?? []), bullet] },
+            ...after.experience.slice(1),
+          ];
+        }
+      }
+    }
+
+    return after;
+  }
+
+  private async requestEnhancementPatch(
+    before: CVData,
+    jobDescription: string,
+    missingKeywords: string[],
+    sections: string[],
+    tone: string,
+  ): Promise<KeywordEnhancePatch> {
+    const cvJson = compactCvForEnhance(before);
+    const system = cvKeywordEnhanceSystemPrompt(tone);
+    const user = cvKeywordEnhanceUserMessage(
+      cvJson,
+      jobDescription,
+      missingKeywords,
+      sections,
+    );
+
+    const raw = await this.openRouter.chat(system, user);
+    return parseAiJson<KeywordEnhancePatch>(raw);
+  }
+
+  async enhanceForJob(
+    cvId: string,
+    userId: string,
+    jobDescription: string,
+    sections: string[] = ['summary', 'experience', 'skills'],
+    tone = 'professional',
+  ) {
+    const before = await this.getCvData(cvId, userId);
+    const matchResult = await this.match(cvId, userId, jobDescription);
+
+    let after: CVData;
+    try {
+      const parsed = await this.requestEnhancementPatch(
+        before,
+        jobDescription,
+        matchResult.missingKeywords,
+        sections,
+        tone,
+      );
+      after = this.applyEnhancementPatch(before, parsed);
+    } catch (firstErr) {
+      if (isOpenRouterCreditsError(firstErr)) {
+        this.logger.warn('Enhancement using keyword fallback — OpenRouter credits low');
+        after = this.fallbackEnhancement(before, jobDescription, matchResult.missingKeywords);
+      } else {
+        this.logger.warn(
+          `Enhancement failed, using keyword fallback: ${firstErr instanceof Error ? firstErr.message : firstErr}`,
+        );
+        after = this.fallbackEnhancement(before, jobDescription, matchResult.missingKeywords);
+      }
+    }
+
+    const addedKeywords = matchResult.missingKeywords.filter((kw) => {
+      const blob = JSON.stringify(after).toLowerCase();
+      return blob.includes(kw.toLowerCase());
+    });
+
+    return { before, after, addedKeywords, missingKeywords: matchResult.missingKeywords };
+  }
+
+  async applyJobEnhancement(
+    cvId: string,
+    userId: string,
+    data: Record<string, unknown>,
+  ) {
+    await this.cvsService.updateData(
+      cvId,
+      userId,
+      { data },
+      CVVersionSource.AI_ENHANCED,
+    );
+    return { applied: true };
+  }
+
+  async coverLetter(cvId: string, userId: string, jobDescription: string) {
+    const cvData = await this.getCvData(cvId, userId);
+    const locale = cvData.meta.locale ?? 'en';
+
+    try {
+      const raw = await this.openRouter.chat(
+        cvCoverLetterSystemPrompt(locale),
+        cvCoverLetterUserMessage(JSON.stringify(cvData), jobDescription),
+      );
+      const parsed = parseAiJson<{ content?: string }>(raw);
+      return { content: parsed.content ?? '' };
+    } catch {
+      return {
+        content: `Dear Hiring Manager,\n\nI am excited to apply for this role. My experience aligns with your requirements.\n\n${jobDescription.slice(0, 200)}...\n\nSincerely,\n${cvData.personal.fullName || '[Your Name]'}`,
+      };
+    }
+  }
+
+  interviewQuestions(_cvId: string, _userId: string, _jobDescription: string) {
     return {
       questions: [
         { q: 'Tell me about a project relevant to this role.', hint: 'Use STAR method' },

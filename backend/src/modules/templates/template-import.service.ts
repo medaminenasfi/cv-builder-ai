@@ -23,7 +23,7 @@ const ALLOWED_MIMES = new Set<string>([
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
 /** Lower default keeps free/low-balance OpenRouter accounts under credit limits. */
-const DEFAULT_OPENROUTER_MAX_TOKENS = 2048;
+const DEFAULT_OPENROUTER_MAX_TOKENS = 768;
 const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
 
 const OPENROUTER_MODEL_MAP: Record<string, string> = {

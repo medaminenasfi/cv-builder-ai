@@ -3,13 +3,13 @@
 import { AppShell } from '@/components/layout/AppShell'
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis'
 import { CVCard } from '@/components/cv/CVCard'
-import { createCV, deleteCV, duplicateCV, listCVs, type CV } from '@/lib/cvs-api'
+import { deleteCV, duplicateCV, listCVs, type CV } from '@/lib/cvs-api'
 import { Plus, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import { useAuth } from '@/providers/AuthProvider'
 import { ApiError } from '@/lib/api'
+import { useAuth } from '@/providers/AuthProvider'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -32,14 +32,7 @@ export default function DashboardPage() {
     load()
   }, [load])
 
-  const handleNewResume = async () => {
-    try {
-      const cv = await createCV({ title: 'Untitled Resume' })
-      router.push(`/cv/${cv.id}/edit`)
-    } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Failed to create CV')
-    }
-  }
+  const handleNewResume = () => router.push('/dashboard/cvs/new')
 
   const handleEdit = (id: string) => router.push(`/cv/${id}/edit`)
 

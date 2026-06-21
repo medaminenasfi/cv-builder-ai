@@ -1,4 +1,5 @@
 import { apiFetch } from './api';
+import type { CVData } from './types/cv-data';
 
 export interface CV {
   id: string;
@@ -9,6 +10,7 @@ export interface CV {
   jobTitleTarget: string | null;
   createdAt: string;
   updatedAt: string;
+  data?: Record<string, unknown>;
 }
 
 export interface CVVersion {
@@ -18,6 +20,36 @@ export interface CVVersion {
   data: Record<string, unknown>;
   source: string;
   createdAt: string;
+}
+
+export interface AtsMatchResult {
+  score: number;
+  breakdown: {
+    keywords: number;
+    format: number;
+    sections: number;
+    experience: number;
+  };
+  matchedKeywords: string[];
+  missingKeywords: string[];
+  suggestions: string[];
+  gaps?: string[];
+  analysisMode?: 'ai' | 'keyword';
+}
+
+export interface JobEnhanceResult {
+  before: CVData;
+  after: CVData;
+  addedKeywords: string[];
+  missingKeywords: string[];
+}
+
+export interface EnhanceResult {
+  before: CVData;
+  after: CVData;
+  tone: string;
+  sections: string[];
+  message: string;
 }
 
 export function listCVs() {
@@ -56,16 +88,43 @@ export function getVersions(id: string) {
 }
 
 export function importCV(title: string, rawText: string) {
-  return apiFetch<{ cvId: string }>('/cvs/import', {
+  return apiFetch<{ cvId: string; message: string }>('/cvs/import', {
     method: 'POST',
     body: JSON.stringify({ title, rawText }),
   });
 }
 
+export function importCVFile(file: File, title?: string) {
+  const form = new FormData();
+  form.append('file', file);
+  if (title) form.append('title', title);
+  return apiFetch<{ cvId: string; message: string }>('/cvs/import/file', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+/** Parse PDF/DOCX and replace content on an existing CV (editor import). */
+export function importCVFileIntoExisting(cvId: string, file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<{ cvId: string; message: string }>(`/cvs/${cvId}/import/file`, {
+    method: 'POST',
+    body: form,
+  });
+}
+
 export function enhanceCV(id: string, sections: string[], tone: string) {
-  return apiFetch(`/cvs/${id}/enhance`, {
+  return apiFetch<EnhanceResult>(`/cvs/${id}/enhance`, {
     method: 'POST',
     body: JSON.stringify({ sections, tone }),
+  });
+}
+
+export function applyEnhancement(id: string, data: Record<string, unknown>) {
+  return apiFetch<{ applied: boolean }>(`/cvs/${id}/enhance/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ data }),
   });
 }
 
@@ -87,10 +146,29 @@ export function shareCV(id: string) {
   return apiFetch<{ token: string; url: string }>(`/cvs/${id}/share`, { method: 'POST' });
 }
 
-export function matchJob(id: string, jobDescription: string) {
-  return apiFetch(`/cvs/${id}/jobs/match`, {
+export function matchJob(id: string, jobDescription: string, jobTitle?: string) {
+  return apiFetch<AtsMatchResult>(`/cvs/${id}/jobs/match`, {
     method: 'POST',
-    body: JSON.stringify({ jobDescription }),
+    body: JSON.stringify({ jobDescription, jobTitle }),
+  });
+}
+
+export function enhanceForJob(
+  id: string,
+  jobDescription: string,
+  sections?: string[],
+  tone?: string,
+) {
+  return apiFetch<JobEnhanceResult>(`/cvs/${id}/jobs/enhance`, {
+    method: 'POST',
+    body: JSON.stringify({ jobDescription, sections, tone }),
+  });
+}
+
+export function applyJobEnhancement(id: string, data: Record<string, unknown>) {
+  return apiFetch<{ applied: boolean }>(`/cvs/${id}/jobs/enhance/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ data }),
   });
 }
 

@@ -15,10 +15,39 @@ export class JobsController {
   @Post(':id/jobs/match')
   match(
     @Param('id') id: string,
-    @Body() body: { jobDescription: string },
+    @Body() body: { jobDescription: string; jobTitle?: string },
     @CurrentUser() user: UserEntity,
   ) {
-    return this.jobsService.match(id, user.id, body.jobDescription);
+    return this.jobsService.match(id, user.id, body.jobDescription, body.jobTitle);
+  }
+
+  @Post(':id/jobs/enhance')
+  enhance(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      jobDescription: string;
+      sections?: string[];
+      tone?: string;
+    },
+    @CurrentUser() user: UserEntity,
+  ) {
+    return this.jobsService.enhanceForJob(
+      id,
+      user.id,
+      body.jobDescription,
+      body.sections,
+      body.tone,
+    );
+  }
+
+  @Post(':id/jobs/enhance/apply')
+  applyEnhance(
+    @Param('id') id: string,
+    @Body() body: { data: Record<string, unknown> },
+    @CurrentUser() user: UserEntity,
+  ) {
+    return this.jobsService.applyJobEnhancement(id, user.id, body.data);
   }
 
   @Post(':id/jobs/cover-letter')

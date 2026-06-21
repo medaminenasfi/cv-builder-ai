@@ -10,11 +10,11 @@ import {
   skillsToInput,
 } from '@/lib/cv-data-utils';
 import {
+  applyEnhancement,
   enhanceCV,
   exportCVHtml,
   getCV,
-  getVersions,
-  importCV,
+  importCVFileIntoExisting,
   updateCV,
   updateCVData,
 } from '@/lib/cvs-api';
@@ -23,9 +23,9 @@ import type { CVData, CVExperience, CVEducation } from '@/lib/types/cv-data';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/providers/AuthProvider';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, Save, Sparkles, Download, ChevronDown } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Plus, Trash2, Save, Sparkles, Download, ChevronDown, Briefcase, FileUp, Eye, Printer } from 'lucide-react';
 
 function Section({
   title,
@@ -74,8 +74,10 @@ const inputCls =
 
 export default function CVEditorPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
   const { user } = useAuth();
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
@@ -84,17 +86,19 @@ export default function CVEditorPage() {
   const [cvData, setCvData] = useState<CVData>(() => emptyCVData('en'));
   const [skillsText, setSkillsText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [importText, setImportText] = useState('');
+  const [tone, setTone] = useState<'professional' | 'creative' | 'technical' | 'academic'>('professional');
+  const [enhancing, setEnhancing] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [cv, versions, tpls] = await Promise.all([
+      const [cv, tpls] = await Promise.all([
         getCV(id),
-        getVersions(id),
         listActiveTemplates(),
       ]);
       setTitle(cv.title);
@@ -102,8 +106,7 @@ export default function CVEditorPage() {
       setTemplates(tpls);
 
       const locale = (cv.locale ?? 'en') as CVData['meta']['locale'];
-      const latest = versions[0];
-      const normalized = normalizeCVData(latest?.data, locale);
+      const normalized = normalizeCVData(cv.data, locale);
 
       if (!normalized.personal.email && user?.email) {
         normalized.personal.email = user.email;
@@ -154,39 +157,72 @@ export default function CVEditorPage() {
   };
 
   const enhance = async () => {
+    setEnhancing(true);
+    setError(null);
     try {
       await save();
-      const result = (await enhanceCV(id, ['summary'], 'professional')) as { summary?: string };
-      if (result.summary) {
-        patchData({ summary: result.summary });
-        setMessage('Summary enhanced with AI');
-      }
+      const result = await enhanceCV(id, ['summary', 'experience', 'skills'], tone);
+      await applyEnhancement(id, result.after as unknown as Record<string, unknown>);
+      setCvData(result.after);
+      setSkillsText(skillsToInput(result.after.skills));
+      setMessage(`CV enhanced (${tone} tone) — review changes`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Enhance failed');
+    } finally {
+      setEnhancing(false);
     }
   };
 
-  const exportHtml = async () => {
+  const openPreview = async () => {
+    try {
+      await save();
+      router.push(`/cv/${id}/preview`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not open preview');
+    }
+  };
+
+  const printPdf = async () => {
     try {
       await save();
       const { html } = await exportCVHtml(id);
       const w = window.open('', '_blank');
-      if (w) {
-        w.document.write(html);
-        w.document.close();
+      if (!w) {
+        setError('Allow pop-ups to export PDF');
+        return;
       }
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => {
+        w.focus();
+        w.print();
+      };
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Export failed');
     }
   };
 
-  const handleImport = async () => {
-    if (!importText.trim()) return;
+  const handleImportFile = async (file: File | undefined) => {
+    if (!file) return;
+    const ok = window.confirm(
+      'Import will replace all current CV fields with parsed data from your file. Continue?',
+    );
+    if (!ok) {
+      if (importFileRef.current) importFileRef.current.value = '';
+      return;
+    }
+    setImporting(true);
+    setError(null);
+    setMessage(null);
     try {
-      await importCV(title || 'Imported Resume', importText);
-      setMessage('Import started — reload to see parsed data');
+      await importCVFileIntoExisting(id, file);
+      await load();
+      setMessage('CV imported — pick a template and review your fields');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Import failed');
+    } finally {
+      setImporting(false);
+      if (importFileRef.current) importFileRef.current.value = '';
     }
   };
 
@@ -264,22 +300,79 @@ export default function CVEditorPage() {
             <Save size={16} />
             {saving ? 'Saving…' : 'Save'}
           </button>
+          <Link
+            href={`/job-match?cvId=${id}`}
+            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg"
+          >
+            <Briefcase size={16} />
+            Job Match
+          </Link>
+          <select
+            value={tone}
+            onChange={(e) =>
+              setTone(e.target.value as typeof tone)
+            }
+            className="border border-purple-100 rounded-lg px-2 py-2 text-sm text-gray-700"
+            aria-label="Enhance tone"
+          >
+            <option value="professional">Professional</option>
+            <option value="creative">Creative</option>
+            <option value="technical">Technical</option>
+            <option value="academic">Academic</option>
+          </select>
           <button
             type="button"
             onClick={enhance}
-            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg"
+            disabled={enhancing}
+            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg disabled:opacity-50"
           >
             <Sparkles size={16} />
-            AI Enhance
+            {enhancing ? 'Enhancing…' : 'AI Enhance'}
           </button>
-          <button
-            type="button"
-            onClick={exportHtml}
-            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg"
-          >
-            <Download size={16} />
-            Export
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setExportOpen((o) => !o)}
+              className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg"
+            >
+              <Download size={16} />
+              Export
+              <ChevronDown size={14} />
+            </button>
+            {exportOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setExportOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-purple-100 rounded-lg shadow-lg py-1 min-w-[180px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportOpen(false);
+                      openPreview();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
+                  >
+                    <Eye size={14} />
+                    A4 preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportOpen(false);
+                      printPdf();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
+                  >
+                    <Printer size={14} />
+                    Save as PDF
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       }
     >
@@ -327,6 +420,28 @@ export default function CVEditorPage() {
                 </p>
               )}
             </Field>
+            <div className="pt-2 border-t border-purple-50">
+              <p className="text-xs font-medium text-gray-500 mb-2">Import resume</p>
+              <button
+                type="button"
+                onClick={() => importFileRef.current?.click()}
+                disabled={importing}
+                className="flex items-center gap-2 px-3 py-2 text-sm border border-dashed border-purple-200 rounded-lg text-purple-700 hover:bg-purple-50 disabled:opacity-50 w-full justify-center"
+              >
+                <FileUp size={16} />
+                {importing ? 'Parsing PDF/Word…' : 'Import PDF or Word (AI parse)'}
+              </button>
+              <p className="text-[10px] text-gray-400 mt-1.5">
+                Replaces current fields. Choose a template above to apply a design after import.
+              </p>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={(e) => handleImportFile(e.target.files?.[0])}
+              />
+            </div>
           </Section>
 
           <Section title="Personal Info">
@@ -449,7 +564,7 @@ export default function CVEditorPage() {
                   />
                 </div>
                 <textarea
-                  value={exp.bullets.join('\n')}
+                  value={(exp.bullets ?? []).join('\n')}
                   onChange={(e) =>
                     updateExperience(index, {
                       bullets: e.target.value.split('\n').filter((b) => b.trim()),
@@ -532,23 +647,6 @@ export default function CVEditorPage() {
               placeholder="React, Node.js, PostgreSQL, Docker…"
             />
             <p className="text-[10px] text-gray-400">Separate with commas or new lines</p>
-          </Section>
-
-          <Section title="Import text" defaultOpen={false}>
-            <textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              rows={3}
-              className={inputCls}
-              placeholder="Paste resume text to import…"
-            />
-            <button
-              type="button"
-              onClick={handleImport}
-              className="mt-2 px-4 py-2 border rounded-lg text-sm"
-            >
-              Import
-            </button>
           </Section>
         </div>
 

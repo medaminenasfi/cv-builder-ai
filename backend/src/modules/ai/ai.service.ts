@@ -1,10 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { normalizeCVData, type CVData } from '../../common/cv-schema';
 import { CVsService } from '../cvs/cvs.service';
 import { CVVersionSource } from '../cvs/entities/cv-version.entity';
+import { parseAiJson } from './ai-json.util';
+import {
+  cvEnhanceSystemPrompt,
+  cvEnhanceUserMessage,
+} from './prompts/cv-ai.prompts';
+import { OpenRouterService } from './openrouter.service';
 
 @Injectable()
 export class AIService {
-  constructor(private readonly cvsService: CVsService) {}
+  constructor(
+    private readonly cvsService: CVsService,
+    private readonly openRouter: OpenRouterService,
+  ) {}
 
   async enhance(
     cvId: string,
@@ -13,26 +27,51 @@ export class AIService {
     tone: string,
   ) {
     const version = await this.cvsService.getLatestVersion(cvId);
-    if (!version) return { suggestions: [] };
+    if (!version) throw new NotFoundException('CV has no data');
 
-    const data = { ...version.data } as Record<string, unknown>;
-    const enhanced = JSON.parse(JSON.stringify(data));
+    const before = normalizeCVData(version.data);
+    const raw = await this.openRouter.chat(
+      cvEnhanceSystemPrompt(tone),
+      cvEnhanceUserMessage(JSON.stringify(before), sections, tone),
+    );
 
-    if (sections.includes('summary') && typeof enhanced.summary === 'string') {
-      enhanced.summary = `[${tone}] ${enhanced.summary}`;
+    let parsed: Partial<CVData>;
+    try {
+      parsed = parseAiJson<Partial<CVData>>(raw);
+    } catch {
+      const retryRaw = await this.openRouter.chat(
+        `${cvEnhanceSystemPrompt(tone)}\nReturn ONLY valid JSON. No markdown.`,
+        cvEnhanceUserMessage(JSON.stringify(before), sections, tone),
+      );
+      try {
+        parsed = parseAiJson<Partial<CVData>>(retryRaw);
+      } catch {
+        throw new BadGatewayException('AI returned invalid JSON for enhancement');
+      }
     }
 
+    const after = normalizeCVData({ ...before, ...parsed });
+
     return {
-      before: data,
-      after: enhanced,
+      before,
+      after,
       tone,
       sections,
       message: 'Review suggestions before applying',
     };
   }
 
-  async applyEnhancement(cvId: string, userId: string, data: Record<string, unknown>) {
-    await this.cvsService.updateData(cvId, userId, { data });
+  async applyEnhancement(
+    cvId: string,
+    userId: string,
+    data: Record<string, unknown>,
+  ) {
+    await this.cvsService.updateData(
+      cvId,
+      userId,
+      { data },
+      CVVersionSource.AI_ENHANCED,
+    );
     return { applied: true };
   }
 }

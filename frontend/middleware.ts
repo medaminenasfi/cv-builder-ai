@@ -9,6 +9,7 @@ const ADMIN_COOKIE = 'cv_admin_access_token';
 function isUserAppRoute(path: string): boolean {
   return (
     path === '/dashboard' ||
+    path.startsWith('/dashboard/') ||
     path.startsWith('/templates') ||
     path.startsWith('/job-match') ||
     path.startsWith('/settings') ||

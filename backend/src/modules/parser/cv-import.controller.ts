@@ -1,36 +1,29 @@
 import {
-  Body,
+  BadRequestException,
   Controller,
+  Param,
   Post,
   UploadedFile,
   UseGuards,
   UseInterceptors,
-  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/auth.guards';
 import { UserEntity } from '../users/entities/user.entity';
 import { ParserService } from './parser.service';
 
 @ApiTags('parser')
-@Controller('cvs/import')
+@Controller('cvs')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
-export class ParserController {
+export class CVImportController {
   constructor(private readonly parserService: ParserService) {}
 
-  @Post()
-  import(
-    @Body() body: { title: string; rawText: string },
-    @CurrentUser() user: UserEntity,
-  ) {
-    return this.parserService.importFromText(user, body.title, body.rawText);
-  }
-
-  @Post('file')
+  @Post(':id/import/file')
+  @ApiOperation({ summary: 'Import PDF/DOCX into an existing CV (replaces content)' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -38,21 +31,17 @@ export class ParserController {
       limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
-  importFile(
+  importIntoExisting(
+    @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Body() body: { title?: string },
     @CurrentUser() user: UserEntity,
   ) {
     if (!file?.buffer?.length) {
       throw new BadRequestException('Upload a PDF or DOCX file');
     }
-    const title =
-      body.title?.trim() ||
-      file.originalname.replace(/\.(pdf|docx)$/i, '') ||
-      'Imported Resume';
-    return this.parserService.importFromFile(
+    return this.parserService.importFileIntoExisting(
+      id,
       user,
-      title,
       file.buffer,
       file.mimetype,
     );

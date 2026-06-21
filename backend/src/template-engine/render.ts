@@ -169,16 +169,37 @@ export function renderTemplate(
       ? `[dir="rtl"] { direction: rtl; text-align: right; } [dir="rtl"] .sidebar { order: 2; }`
       : '';
 
-  const previewBase =
-    'html,body{margin:0;padding:0;background:#ffffff;color:#111;min-height:100%;}';
+  const previewBase = `
+html,body{margin:0;padding:0;background:#ffffff;color:#111;min-height:100%;}
+@page{size:A4;margin:12mm;}
+@media screen{
+  body{background:#e8eaed;}
+  .cv-page{
+    width:210mm;
+    min-height:297mm;
+    margin:16px auto;
+    padding:12mm 15mm;
+    background:#fff;
+    box-shadow:0 2px 16px rgba(0,0,0,.1);
+    box-sizing:border-box;
+  }
+}
+@media print{
+  body{background:#fff;}
+  .cv-page{width:auto;min-height:auto;margin:0;padding:0;box-shadow:none;}
+}
+`;
+
+  const wrappedBody = `<div class="cv-page">${body}</div>`;
 
   return `<!DOCTYPE html>
 <html lang="${options.locale ?? cvData.meta.locale}" dir="${direction}">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(cvData.personal.fullName || 'CV')} — Preview</title>
   <style>${previewBase}\n${css}\n${rtlCss}</style>
 </head>
-<body>${body}</body>
+<body>${wrappedBody}</body>
 </html>`;
 }

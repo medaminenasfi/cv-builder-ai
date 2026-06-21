@@ -35,7 +35,7 @@ export class CVsController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.cvsService.findById(id, user.id);
+    return this.cvsService.findByIdWithData(id, user.id);
   }
 
   @Patch(':id')

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { emptyCVData, FREE_CV_LIMIT } from '../../common/cv-schema';
+import { emptyCVData, FREE_CV_LIMIT, normalizeCVData } from '../../common/cv-schema';
 import { UserPlan } from '../../common/enums/user.enum';
 import { UserEntity } from '../users/entities/user.entity';
 import { CreateCVDto, UpdateCVDataDto, UpdateCVDto } from './dto/cv.dto';
@@ -32,6 +32,20 @@ export class CVsService {
     const cv = await this.cvsRepository.findOne({ where: { id, userId } });
     if (!cv) throw new NotFoundException('CV not found');
     return cv;
+  }
+
+  async findByIdWithData(
+    id: string,
+    userId: string,
+  ): Promise<CVEntity & { data: Record<string, unknown> }> {
+    const cv = await this.findById(id, userId);
+    const version = await this.getLatestVersion(id);
+    const locale = (cv.locale ?? 'en') as 'en' | 'fr' | 'ar';
+    const raw = version?.data ?? (emptyCVData(locale) as unknown as Record<string, unknown>);
+    return {
+      ...cv,
+      data: normalizeCVData(raw, locale) as unknown as Record<string, unknown>,
+    };
   }
 
   async create(dto: CreateCVDto, user: UserEntity): Promise<CVEntity> {
@@ -66,9 +80,14 @@ export class CVsService {
     return this.cvsRepository.save(cv);
   }
 
-  async updateData(id: string, userId: string, dto: UpdateCVDataDto): Promise<CVVersionEntity> {
+  async updateData(
+    id: string,
+    userId: string,
+    dto: UpdateCVDataDto,
+    source: CVVersionSource = CVVersionSource.MANUAL,
+  ): Promise<CVVersionEntity> {
     await this.findById(id, userId);
-    return this.createVersion(id, dto.data, CVVersionSource.MANUAL);
+    return this.createVersion(id, dto.data, source);
   }
 
   async duplicate(id: string, user: UserEntity): Promise<CVEntity> {

@@ -7,10 +7,13 @@
 | Module | Status |
 |--------|--------|
 | M01 Auth | Done |
-| M01-Admin | In progress |
-| M02 Templates | Pending |
-| M03 Multi-CV | Pending |
-| M04–M12 | See roadmap below |
+| M01-Admin | Done |
+| M02 Templates | Partial |
+| M03 Multi-CV | Partial |
+| M04 Builder | In progress |
+| M05 Parser | In progress |
+| M07 AI enhancer | In progress |
+| M08 Job match + ATS | In progress |
 
 **Ports:** API `3002`, PostgreSQL Docker `55432`, Frontend `3000`
 
@@ -51,4 +54,4 @@ cv Builder/
 └── docker-compose.yml
 ```
 
-See `.cursor/plans/cv_builder_master_plan_0ec6f075.plan.md` for full detailed specification.
+See [docs/CV-FLOWS-AND-AI.md](docs/CV-FLOWS-AND-AI.md) for import/review/job-match flows.
