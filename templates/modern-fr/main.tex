@@ -1,0 +1,29 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[margin=2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\definecolor{headerblue}{HTML}{1f4e79}
+\begin{document}
+\begin{center}
+  {\color{headerblue}\rule{\linewidth}{2pt}}\\[6pt]
+  {\LARGE\textbf{\color{headerblue}{{{fullName}}}}}\\[4pt]
+  {\large {{title}}}\\[6pt]
+  {{contactLine}}\\[4pt]
+  {\color{headerblue}\rule{\linewidth}{0.5pt}}
+\end{center}
+\vspace{8pt}
+\section*{\color{headerblue}{{{summaryTitle}}}}
+{{summary}}
+\section*{\color{headerblue}{{{experienceTitle}}}}
+{{experience}}
+\section*{\color{headerblue}{{{educationTitle}}}}
+{{education}}
+\section*{\color{headerblue}{{{skillsTitle}}}}
+{{skills}}
+\section*{\color{headerblue}{{{languagesTitle}}}}
+{{languages}}
+\end{document}

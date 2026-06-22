@@ -51,18 +51,8 @@ export default function DashboardPage() {
     refresh()
   }
 
-  const downloadExport = async (id: string, format: 'pdf' | 'docx' | 'html') => {
+  const downloadExport = async (id: string, format: 'pdf' | 'docx') => {
     try {
-      if (format === 'html') {
-        const { exportCVHtml } = await import('@/lib/cvs-api')
-        const { html } = await exportCVHtml(id)
-        const blob = new Blob([html], { type: 'text/html' })
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = 'resume.html'
-        a.click()
-        return
-      }
       const blob = await apiFetchBlob(`/cvs/${id}/export/${format}`)
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
@@ -163,7 +153,6 @@ export default function DashboardPage() {
               onRename={handleRename}
               onExportPdf={(id) => downloadExport(id, 'pdf')}
               onExportDocx={(id) => downloadExport(id, 'docx')}
-              onExportHtml={(id) => downloadExport(id, 'html')}
               onJobMatch={(id) => router.push(`/job-match?cvId=${id}`)}
               onAiImprove={(id) => router.push(`/cv/${id}/edit?ai=1`)}
             />

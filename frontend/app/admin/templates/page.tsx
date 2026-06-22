@@ -1,30 +1,27 @@
 'use client'
 
-/** Admin templates: HTML/CSS/JSON only — no PDF import (use built-in templates or Dashboard for CV JSON). */
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Eye, Pencil, Trash2, X, Upload, Info, FolderOpen } from 'lucide-react'
+import { Plus, Eye, Pencil, Trash2, X, Upload, FolderOpen, Play, RefreshCw } from 'lucide-react'
 import {
+  compileLatex,
   createTemplate,
+  DEFAULT_LATEX_TEMPLATE,
   deleteTemplate,
-  importTemplateFromHtmlCss,
-  importTemplateFromJson,
-  importTemplateJsonText,
+  LATEX_PLACEHOLDERS,
   listAllTemplates,
   listBundledTemplates,
   loadBundledTemplate,
-  previewTemplate,
-  TEMPLATE_JSON_EXAMPLE,
+  previewTemplatePdf,
   toggleTemplate,
   updateTemplate,
   type Template,
-  type TemplateImportResult,
 } from '@/lib/templates-api'
+import { ApiError } from '@/lib/api'
 
 const EMPTY_FORM = {
   name: '',
   slug: '',
-  htmlStructure: '',
-  css: '',
+  latexSource: DEFAULT_LATEX_TEMPLATE,
   thumbnailUrl: '',
   supportsRtl: false,
 }
@@ -38,25 +35,42 @@ function readFileAsText(file: File): Promise<string> {
   })
 }
 
+function extractCompileLog(err: unknown): string | null {
+  if (err instanceof ApiError && err.data && typeof err.data === 'object') {
+    const d = err.data as {
+      log?: string
+      message?: string | string[] | { log?: string; error?: string }
+    }
+    if (d.log) return d.log
+    const msg = d.message
+    if (msg && typeof msg === 'object' && !Array.isArray(msg)) {
+      if (msg.log) return msg.log
+      if (msg.error && msg.log) return msg.log
+    }
+    if (typeof msg === 'string') return msg
+    if (Array.isArray(msg)) return msg.join('\n')
+  }
+  if (err instanceof Error) return err.message
+  return null
+}
+
 export default function AdminTemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [bundled, setBundled] = useState<{ slug: string; name: string; supportsRtl: boolean }[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
+  const [compileUrl, setCompileUrl] = useState<string | null>(null)
+  const [compileLog, setCompileLog] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [compiling, setCompiling] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
   const [importNote, setImportNote] = useState<string | null>(null)
-  const [pasteJson, setPasteJson] = useState('')
-  const [showPasteJson, setShowPasteJson] = useState(false)
-  const htmlInputRef = useRef<HTMLInputElement>(null)
-  const cssInputRef = useRef<HTMLInputElement>(null)
-  const jsonInputRef = useRef<HTMLInputElement>(null)
-  const packageHtmlRef = useRef<HTMLInputElement>(null)
-  const packageCssRef = useRef<HTMLInputElement>(null)
-  const pendingPackageHtml = useRef<File | null>(null)
+  const texInputRef = useRef<HTMLInputElement>(null)
 
   const load = () => listAllTemplates().then(setTemplates).catch(console.error)
   useEffect(() => {
@@ -64,10 +78,18 @@ export default function AdminTemplatesPage() {
     listBundledTemplates().then(setBundled).catch(() => setBundled([]))
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      if (compileUrl) URL.revokeObjectURL(compileUrl)
+    }
+  }, [previewUrl, compileUrl])
+
   const openCreate = () => {
     setEditingId(null)
     setForm(EMPTY_FORM)
     setError(null)
+    setCompileLog(null)
     setShowForm(true)
   }
 
@@ -76,29 +98,27 @@ export default function AdminTemplatesPage() {
     setForm({
       name: t.name,
       slug: t.slug,
-      htmlStructure: t.htmlStructure,
-      css: t.css,
+      latexSource: t.latexSource ?? DEFAULT_LATEX_TEMPLATE,
       thumbnailUrl: t.thumbnailUrl ?? '',
       supportsRtl: t.supportsRtl,
     })
     setError(null)
+    setCompileLog(null)
     setShowForm(true)
   }
 
-  const handleFileUpload = async (type: 'html' | 'css', file: File | undefined) => {
+  const handleTexUpload = async (file: File | undefined) => {
     if (!file) return
     const text = await readFileAsText(file)
-    if (type === 'html') setForm((f) => ({ ...f, htmlStructure: text }))
-    else setForm((f) => ({ ...f, css: text }))
+    setForm((f) => ({ ...f, latexSource: text }))
   }
 
-  const applyImportResult = (result: TemplateImportResult) => {
+  const applyBundled = (result: { name: string; slug?: string; latexSource: string; supportsRtl: boolean; notes?: string }) => {
     setEditingId(null)
     setForm({
       name: result.name,
       slug: result.slug ?? '',
-      htmlStructure: result.htmlStructure,
-      css: result.css,
+      latexSource: result.latexSource,
       thumbnailUrl: '',
       supportsRtl: result.supportsRtl,
     })
@@ -112,7 +132,7 @@ export default function AdminTemplatesPage() {
     setImportNote(null)
     try {
       const result = await loadBundledTemplate(slug)
-      applyImportResult(result)
+      applyBundled(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load template')
     } finally {
@@ -120,79 +140,29 @@ export default function AdminTemplatesPage() {
     }
   }
 
-  const handlePasteJsonImport = async () => {
-    if (!pasteJson.trim()) return
-    setImporting(true)
-    setError(null)
-    setImportNote(null)
-    try {
-      const result = await importTemplateJsonText(pasteJson)
-      applyImportResult(result)
-      setShowPasteJson(false)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'JSON import failed')
-    } finally {
-      setImporting(false)
+  const handleCompile = async () => {
+    if (!form.latexSource.trim()) {
+      setError('Paste LaTeX source first')
+      return
     }
-  }
-
-  const handleJsonImport = async (file: File | undefined) => {
-    if (!file) return
-    setImporting(true)
+    setCompiling(true)
     setError(null)
-    setImportNote(null)
+    setCompileLog(null)
     try {
-      const result = await importTemplateFromJson(file)
-      applyImportResult(result)
+      const blob = await compileLatex(form.latexSource)
+      if (compileUrl) URL.revokeObjectURL(compileUrl)
+      setCompileUrl(URL.createObjectURL(blob))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'JSON import failed')
+      setCompileLog(extractCompileLog(e))
+      setError(extractCompileLog(e) ?? 'Compile failed')
     } finally {
-      setImporting(false)
-      if (jsonInputRef.current) jsonInputRef.current.value = ''
+      setCompiling(false)
     }
-  }
-
-  const handlePackageHtml = (file: File | undefined) => {
-    if (!file) return
-    pendingPackageHtml.current = file
-    if (packageCssRef.current) packageCssRef.current.value = ''
-    packageCssRef.current?.click()
-  }
-
-  const handlePackageCss = async (cssFile: File | undefined) => {
-    const htmlFile = pendingPackageHtml.current
-    pendingPackageHtml.current = null
-    if (!htmlFile || !cssFile) return
-    setImporting(true)
-    setError(null)
-    setImportNote(null)
-    try {
-      const result = await importTemplateFromHtmlCss(htmlFile, cssFile)
-      applyImportResult(result)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'HTML/CSS import failed')
-    } finally {
-      setImporting(false)
-      if (packageHtmlRef.current) packageHtmlRef.current.value = ''
-      if (packageCssRef.current) packageCssRef.current.value = ''
-    }
-  }
-
-  const downloadJsonExample = () => {
-    const blob = new Blob([JSON.stringify(TEMPLATE_JSON_EXAMPLE, null, 2)], {
-      type: 'application/json',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'template-example.json'
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.htmlStructure.trim() || !form.css.trim()) {
-      setError('Name, HTML and CSS are required')
+    if (!form.name.trim() || !form.latexSource.trim()) {
+      setError('Name and LaTeX source are required')
       return
     }
     setSaving(true)
@@ -201,402 +171,269 @@ export default function AdminTemplatesPage() {
       if (editingId) {
         await updateTemplate(editingId, {
           name: form.name,
-          htmlStructure: form.htmlStructure,
-          css: form.css,
-          thumbnailUrl: form.thumbnailUrl || undefined,
+          latexSource: form.latexSource,
+          thumbnailUrl: form.thumbnailUrl || null,
           supportsRtl: form.supportsRtl,
         })
       } else {
         await createTemplate({
           name: form.name,
           slug: form.slug || undefined,
-          htmlStructure: form.htmlStructure,
-          css: form.css,
-          thumbnailUrl: form.thumbnailUrl || undefined,
+          latexSource: form.latexSource,
+          thumbnailUrl: form.thumbnailUrl || null,
           supportsRtl: form.supportsRtl,
         })
       }
       setShowForm(false)
-      setForm(EMPTY_FORM)
       load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save template')
+      setError(e instanceof Error ? e.message : 'Save failed')
     } finally {
       setSaving(false)
     }
   }
 
   const handlePreview = async (id: string, rtl = false) => {
-    const { html } = await previewTemplate(id, rtl)
-    setPreviewHtml(html)
+    setPreviewId(id)
+    setPreviewing(true)
+    setError(null)
+    try {
+      const blob = await previewTemplatePdf(id, rtl)
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(URL.createObjectURL(blob))
+    } catch (e) {
+      setPreviewId(null)
+      setError(extractCompileLog(e) ?? 'Preview failed')
+    } finally {
+      setPreviewing(false)
+    }
+  }
+
+  const handleToggle = async (id: string) => {
+    await toggleTemplate(id)
+    load()
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this template?')) return
+    await deleteTemplate(id)
+    load()
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap justify-between items-start gap-4">
+    <div className="max-w-6xl mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Template Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">LaTeX Templates</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Templates = HTML + CSS design only. CV PDF/JSON goes on{' '}
-            <a href="/dashboard/cvs/new" className="text-purple-600 underline">Create Resume</a>.
+            Paste or upload .tex files with {'{{placeholders}}'}. Requires{' '}
+            <code className="text-xs bg-gray-100 px-1 rounded">docker compose up latex-sandbox</code>
+            . First compile may take 1–2 minutes while Tectonic downloads packages.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            ref={jsonInputRef}
-            type="file"
-            accept=".json,application/json"
-            className="hidden"
-            onChange={(e) => handleJsonImport(e.target.files?.[0])}
-          />
-          <input
-            ref={packageHtmlRef}
-            type="file"
-            accept=".html,.htm,text/html"
-            className="hidden"
-            onChange={(e) => handlePackageHtml(e.target.files?.[0])}
-          />
-          <input
-            ref={packageCssRef}
-            type="file"
-            accept=".css,text/css"
-            className="hidden"
-            onChange={(e) => handlePackageCss(e.target.files?.[0])}
-          />
-          <button
-            type="button"
-            onClick={() => packageHtmlRef.current?.click()}
-            disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 border border-purple-200 text-purple-700 rounded-lg text-sm hover:bg-purple-50 disabled:opacity-50"
-          >
-            <Upload size={16} />
-            Import HTML+CSS
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowPasteJson((v) => !v)}
-            disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 border border-purple-300 bg-purple-50 text-purple-800 rounded-lg text-sm hover:bg-purple-100 disabled:opacity-50"
-          >
-            Paste ChatGPT JSON
-          </button>
-          <button
-            type="button"
-            onClick={() => jsonInputRef.current?.click()}
-            disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Upload size={16} />
-            Import Template JSON
-          </button>
-          <button
-            type="button"
-            onClick={downloadJsonExample}
-            className="px-3 py-2 text-xs text-purple-600 hover:underline"
-          >
-            JSON example
-          </button>
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:opacity-90"
-          >
-            <Plus size={16} /> Add Template
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={openCreate}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700"
+        >
+          <Plus size={16} /> Add Template
+        </button>
       </div>
 
-      {showPasteJson && (
-        <div className="bg-white border border-purple-200 rounded-xl p-4 space-y-3">
-          <p className="text-sm font-medium text-purple-900">Paste JSON from ChatGPT</p>
-          <p className="text-xs text-gray-500">
-            Copy the whole message (even if invalid JSON). Broken quotes inside HTML are fixed automatically.
-          </p>
-          <textarea
-            value={pasteJson}
-            onChange={(e) => setPasteJson(e.target.value)}
-            rows={8}
-            placeholder='Paste {"name":"...","htmlStructure":"...","css":"..."} here'
-            className="w-full border rounded-lg px-3 py-2 text-xs font-mono"
-          />
-          <button
-            type="button"
-            onClick={handlePasteJsonImport}
-            disabled={importing || !pasteJson.trim()}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm disabled:opacity-50"
-          >
-            {importing ? 'Importing…' : 'Import pasted JSON'}
-          </button>
-        </div>
+      {error && !showForm && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{error}</div>
       )}
 
       {bundled.length > 0 && (
-        <div className="bg-white border border-purple-100 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <FolderOpen size={18} className="text-purple-600" />
-            <p className="font-medium text-sm">Built-in templates (HTML + CSS — no PDF, no AI)</p>
-          </div>
-          <p className="text-xs text-gray-500 mb-3">
-            Click to load ready-made design into the editor, then save. Same files as{' '}
-            <code className="bg-gray-50 px-1 rounded">templates/modern/</code> in the project.
-          </p>
+        <section className="bg-white border border-purple-100 rounded-xl p-4">
+          <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+            <FolderOpen size={16} className="text-purple-500" /> Built-in LaTeX templates
+          </h2>
           <div className="flex flex-wrap gap-2">
-            {bundled.map((t) => (
+            {bundled.map((b) => (
               <button
-                key={t.slug}
+                key={b.slug}
                 type="button"
                 disabled={importing}
-                onClick={() => handleLoadBundled(t.slug)}
-                className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 text-purple-800 hover:bg-purple-50 disabled:opacity-50"
+                onClick={() => handleLoadBundled(b.slug)}
+                className="px-3 py-1.5 text-xs border border-purple-200 rounded-lg hover:bg-purple-50 disabled:opacity-50"
               >
-                {t.name}
+                {b.name}
               </button>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-950">
-        <p className="font-semibold">PDF is not a template</p>
-        <p className="text-xs mt-1">
-          A CV PDF cannot become an exact HTML template automatically. Use built-in templates above,
-          or import <strong>HTML + CSS</strong> files. Your CV content (PDF → ChatGPT → JSON) belongs on{' '}
-          <a href="/dashboard/cvs/new" className="underline font-medium">Dashboard → Import JSON</a>.
-        </p>
-      </div>
-
-      <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 text-sm">
-        <div className="flex gap-2 items-start">
-          <Info size={18} className="text-purple-600 shrink-0 mt-0.5" />
-          <div className="space-y-2 text-gray-700">
-            <p className="font-medium text-purple-900">How it works</p>
-            <ol className="list-decimal list-inside space-y-1 text-xs">
-              <li><strong>Template</strong> (here): HTML + CSS with {'{{fullName}}'}, {'{{experience}}'}, etc.</li>
-              <li><strong>CV data</strong> (Dashboard): JSON with your jobs, skills, profile</li>
-              <li>User picks template + fills data → export PDF looks like the template</li>
-            </ol>
-            <p className="text-xs text-gray-600">
-              Placeholders: <code>{'{{fullName}}'}</code>, <code>{'{{contactLine}}'}</code>,{' '}
-              <code>{'{{summary}}'}</code>, <code>{'{{education}}'}</code>, <code>{'{{experience}}'}</code>,{' '}
-              <code>{'{{skills}}'}</code>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">{error}</p>
-      )}
-
-      <div className="bg-white rounded-xl border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-purple-50">
-            <tr>
-              <th className="px-4 py-3 text-left">Name</th>
-              <th className="px-4 py-3 text-left">Slug</th>
-              <th className="px-4 py-3 text-left">RTL</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {templates.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No templates — click a built-in template above or run npm run seed:templates
-                </td>
-              </tr>
-            ) : (
-              templates.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="px-4 py-3 font-medium">{t.name}</td>
-                  <td className="px-4 py-3 text-gray-500">{t.slug}</td>
-                  <td className="px-4 py-3">{t.supportsRtl ? '✓' : '—'}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleTemplate(t.id).then(load)}
-                      className={`px-2 py-1 rounded text-xs ${t.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
-                    >
-                      {t.isActive ? 'Active' : 'Inactive'}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <button
-                        onClick={() => handlePreview(t.id)}
-                        title="Preview LTR"
-                        className="p-1.5 text-purple-600 hover:bg-purple-50 rounded"
-                      >
-                        <Eye size={16} />
-                      </button>
-                      {t.supportsRtl && (
-                        <button
-                          onClick={() => handlePreview(t.id, true)}
-                          title="Preview RTL"
-                          className="p-1.5 text-xs text-purple-600 hover:bg-purple-50 rounded border border-purple-100 px-2"
-                        >
-                          RTL
-                        </button>
-                      )}
-                      <button
-                        onClick={() => openEdit(t)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-50 rounded"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Delete "${t.name}"?`)) deleteTemplate(t.id).then(load)
-                        }}
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowForm(false)} />
-          <div className="relative w-full max-w-lg bg-white h-full p-6 overflow-y-auto shadow-xl">
-            <div className="flex justify-between mb-4">
-              <h2 className="font-semibold">{editingId ? 'Edit Template' : 'Add Template'}</h2>
-              <button onClick={() => setShowForm(false)}><X size={20} /></button>
+      <div className="grid gap-3">
+        {templates.map((t) => (
+          <div
+            key={t.id}
+            className="flex items-center justify-between gap-4 p-4 bg-white border border-gray-200 rounded-xl"
+          >
+            <div>
+              <p className="font-medium text-gray-900">{t.name}</p>
+              <p className="text-xs text-gray-500">
+                {t.slug} · {t.engine} · {t.isActive ? 'Active' : 'Inactive'}
+              </p>
             </div>
-
-            {importNote && (
-              <p className="mb-3 text-sm text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{importNote}</p>
-            )}
-            {error && (
-              <p className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase">Name *</label>
-                <input
-                  placeholder="e.g. Modern Professional"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm mt-1"
-                />
-              </div>
-
-              {!editingId && (
-                <div>
-                  <label className="text-xs font-semibold text-gray-500 uppercase">Slug (optional)</label>
-                  <input
-                    placeholder="auto from name if empty"
-                    value={form.slug}
-                    onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm mt-1"
-                  />
-                </div>
-              )}
-
-              <div>
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">HTML *</label>
-                  <button
-                    type="button"
-                    onClick={() => htmlInputRef.current?.click()}
-                    className="flex items-center gap-1 text-xs text-purple-600 hover:underline"
-                  >
-                    <Upload size={12} /> Upload .html
-                  </button>
-                </div>
-                <input
-                  ref={htmlInputRef}
-                  type="file"
-                  accept=".html,.htm,text/html"
-                  className="hidden"
-                  onChange={(e) => handleFileUpload('html', e.target.files?.[0])}
-                />
-                <textarea
-                  value={form.htmlStructure}
-                  onChange={(e) => setForm({ ...form, htmlStructure: e.target.value })}
-                  rows={8}
-                  placeholder="<div><h1>{{fullName}}</h1>...</div>"
-                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono mt-1"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-semibold text-gray-500 uppercase">CSS *</label>
-                  <button
-                    type="button"
-                    onClick={() => cssInputRef.current?.click()}
-                    className="flex items-center gap-1 text-xs text-purple-600 hover:underline"
-                  >
-                    <Upload size={12} /> Upload .css
-                  </button>
-                </div>
-                <input
-                  ref={cssInputRef}
-                  type="file"
-                  accept=".css,text/css"
-                  className="hidden"
-                  onChange={(e) => handleFileUpload('css', e.target.files?.[0])}
-                />
-                <textarea
-                  value={form.css}
-                  onChange={(e) => setForm({ ...form, css: e.target.value })}
-                  rows={6}
-                  placeholder="body { font-family: sans-serif; }"
-                  className="w-full border rounded-lg px-3 py-2 text-sm font-mono mt-1"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase">Thumbnail URL (optional)</label>
-                <input
-                  placeholder="/template-thumbs/my-design.png"
-                  value={form.thumbnailUrl}
-                  onChange={(e) => setForm({ ...form, thumbnailUrl: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm mt-1"
-                />
-              </div>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.supportsRtl}
-                  onChange={(e) => setForm({ ...form, supportsRtl: e.target.checked })}
-                />
-                RTL support (Arabic)
-              </label>
-
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
-              >
-                {saving ? 'Saving...' : editingId ? 'Update Template' : 'Create Template'}
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => handlePreview(t.id)} disabled={previewing} className="p-2 text-gray-500 hover:text-purple-600 disabled:opacity-50" title="Preview PDF">
+                <Eye size={16} />
+              </button>
+              <button type="button" onClick={() => openEdit(t)} className="p-2 text-gray-500 hover:text-purple-600" title="Edit">
+                <Pencil size={16} />
+              </button>
+              <button type="button" onClick={() => handleToggle(t.id)} className="text-xs px-2 py-1 border rounded-lg">
+                {t.isActive ? 'Deactivate' : 'Activate'}
+              </button>
+              <button type="button" onClick={() => handleDelete(t.id)} className="p-2 text-gray-500 hover:text-red-600" title="Delete">
+                <Trash2 size={16} />
               </button>
             </div>
           </div>
+        ))}
+      </div>
+
+      {showForm && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl my-8">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-semibold">{editingId ? 'Edit Template' : 'New LaTeX Template'}</h2>
+              <button type="button" onClick={() => setShowForm(false)} className="p-1 text-gray-500 hover:text-gray-800">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 grid lg:grid-cols-[1fr_220px] gap-4">
+              <div className="space-y-3">
+                {importNote && (
+                  <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">{importNote}</p>
+                )}
+                {error && (
+                  <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2 whitespace-pre-wrap">{error}</p>
+                )}
+                {compileLog && (
+                  <pre className="text-[10px] text-red-800 bg-red-50 border border-red-200 rounded-lg p-2 max-h-32 overflow-auto whitespace-pre-wrap">{compileLog}</pre>
+                )}
+
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <input
+                    className="border rounded-lg px-3 py-2 text-sm"
+                    placeholder="Template name"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                  <input
+                    className="border rounded-lg px-3 py-2 text-sm"
+                    placeholder="Slug (optional)"
+                    value={form.slug}
+                    onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => texInputRef.current?.click()}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 border rounded-lg hover:bg-gray-50"
+                  >
+                    <Upload size={12} /> Upload .tex
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCompile}
+                    disabled={compiling}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {compiling ? <RefreshCw size={12} className="animate-spin" /> : <Play size={12} />}
+                    {compiling ? 'Compiling… (may take 1–2 min first time)' : 'Compile & Preview'}
+                  </button>
+                  <input
+                    ref={texInputRef}
+                    type="file"
+                    accept=".tex,text/plain"
+                    className="hidden"
+                    onChange={(e) => handleTexUpload(e.target.files?.[0])}
+                  />
+                  <label className="flex items-center gap-1 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={form.supportsRtl}
+                      onChange={(e) => setForm({ ...form, supportsRtl: e.target.checked })}
+                    />
+                    Supports RTL
+                  </label>
+                </div>
+
+                <textarea
+                  className="w-full h-80 font-mono text-xs border rounded-lg p-3 resize-y"
+                  value={form.latexSource}
+                  onChange={(e) => setForm({ ...form, latexSource: e.target.value })}
+                  spellCheck={false}
+                />
+
+                {compileUrl && (
+                  <div className="border rounded-lg overflow-hidden h-96">
+                    <iframe title="Compile preview" src={compileUrl} className="w-full h-full border-0" />
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm border rounded-lg">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    {saving ? 'Saving…' : editingId ? 'Save Changes' : 'Create Template'}
+                  </button>
+                </div>
+              </div>
+
+              <aside className="text-xs text-gray-600 space-y-2">
+                <p className="font-semibold text-gray-800">Placeholders</p>
+                <ul className="space-y-0.5 font-mono text-[10px] max-h-[420px] overflow-y-auto">
+                  {LATEX_PLACEHOLDERS.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+              </aside>
+            </div>
+          </div>
         </div>
       )}
 
-      {previewHtml && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewHtml(null)} />
-          <div className="relative bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center px-4 py-3 border-b">
-              <h3 className="font-semibold text-sm">Template Preview</h3>
-              <button onClick={() => setPreviewHtml(null)}><X size={20} /></button>
+      {previewing && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl px-6 py-4 flex items-center gap-3 shadow-xl">
+            <RefreshCw size={18} className="animate-spin text-purple-600" />
+            <span className="text-sm text-gray-700">Compiling PDF… first run may take 1–2 min</span>
+          </div>
+        </div>
+      )}
+
+      {previewId && previewUrl && !previewing && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-4xl h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between p-3 border-b">
+              <span className="text-sm font-medium">Template PDF Preview</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPreviewId(null)
+                  if (previewUrl) URL.revokeObjectURL(previewUrl)
+                  setPreviewUrl(null)
+                }}
+                className="p-1"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <iframe
-              srcDoc={previewHtml}
-              title="Template preview"
-              className="flex-1 w-full min-h-[500px] border-0"
-            />
+            <iframe title="Template preview" src={previewUrl} className="flex-1 w-full border-0" />
           </div>
         </div>
       )}

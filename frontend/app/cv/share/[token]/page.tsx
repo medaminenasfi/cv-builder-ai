@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { apiFetchPublic } from '@/lib/api'
 import { Printer, Download } from 'lucide-react'
@@ -10,7 +10,7 @@ interface SharePayload {
   title: string
   locale: string
   fullName: string
-  html: string
+  pdfBase64: string
   expiresAt?: string
 }
 
@@ -18,13 +18,31 @@ export default function ShareCVPage() {
   const params = useParams()
   const token = params.token as string
   const [payload, setPayload] = useState<SharePayload | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const urlRef = useRef<string | null>(null)
 
   useEffect(() => {
     apiFetchPublic<SharePayload | null>(`/share/${token}`)
-      .then((r) => setPayload(r))
+      .then((r) => {
+        setPayload(r)
+        if (r?.pdfBase64) {
+          const binary = atob(r.pdfBase64)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          const blob = new Blob([bytes], { type: 'application/pdf' })
+          if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+          const url = URL.createObjectURL(blob)
+          urlRef.current = url
+          setPdfUrl(url)
+        }
+      })
       .catch(() => setPayload(null))
       .finally(() => setLoading(false))
+
+    return () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+    }
   }, [token])
 
   const handlePrint = () => window.print()
@@ -52,7 +70,7 @@ export default function ShareCVPage() {
     )
   }
 
-  if (!payload?.html) {
+  if (!payload?.pdfBase64) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
         <div className="text-center max-w-md">
@@ -110,13 +128,15 @@ export default function ShareCVPage() {
       </header>
 
       <main className="max-w-[210mm] mx-auto py-8 px-4 print:p-0 print:max-w-none">
-        <div className="bg-white shadow-xl rounded-lg overflow-hidden print:shadow-none print:rounded-none">
-          <iframe
-            title="Shared resume"
-            srcDoc={payload.html}
-            className="w-full border-0 min-h-[297mm]"
-            style={{ height: '297mm' }}
-          />
+        <div className="bg-white shadow-xl rounded-lg overflow-hidden print:shadow-none print:rounded-none min-h-[297mm]">
+          {pdfUrl && (
+            <iframe
+              title="Shared resume"
+              src={pdfUrl}
+              className="w-full border-0 min-h-[297mm]"
+              style={{ height: '297mm' }}
+            />
+          )}
         </div>
       </main>
 

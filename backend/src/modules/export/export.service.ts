@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
-import puppeteer from 'puppeteer';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { normalizeCVData } from '../../common/cv-schema';
+import { renderLatex } from '../../template-engine/latex/render-latex';
 import { LocalStorageService } from '../storage/local-storage.service';
 import { CVsService } from '../cvs/cvs.service';
 import { TemplatesService } from '../templates/templates.service';
-import { renderTemplate } from '../../template-engine/render';
+import { LatexCompileClient } from '../latex/latex-compile.client';
 import { DocxExportService } from './docx-export.service';
 
 @Injectable()
@@ -12,15 +12,22 @@ export class ExportService {
   constructor(
     private readonly cvsService: CVsService,
     private readonly templatesService: TemplatesService,
+    private readonly latexCompileClient: LatexCompileClient,
     private readonly docxExportService: DocxExportService,
     private readonly localStorage: LocalStorageService,
   ) {}
 
-  async renderCVHtml(
+  private async resolveTemplateLatex(templateId: string | null | undefined): Promise<string> {
+    if (!templateId) return '';
+    const template = await this.templatesService.findById(templateId);
+    return template?.latexSource?.trim() ?? '';
+  }
+
+  private async buildTex(
     cvId: string,
     userId: string,
     draft?: { data?: Record<string, unknown>; templateId?: string | null },
-  ): Promise<{ html: string }> {
+  ): Promise<{ tex: string; locale: string }> {
     const cv = await this.cvsService.findById(cvId, userId);
     const version = await this.cvsService.getLatestVersion(cvId);
     const locale = (cv.locale ?? 'en') as 'en' | 'fr' | 'ar';
@@ -30,50 +37,32 @@ export class ExportService {
         ? draft.data
         : undefined;
     const rawSource = draftPayload ?? version?.data ?? {};
-
     const data = normalizeCVData(rawSource, locale);
 
-    const templateId = draft?.templateId !== undefined ? draft.templateId : cv.templateId;
+    const templateId =
+      draft?.templateId !== undefined ? draft.templateId : cv.templateId;
+    const latexSource = await this.resolveTemplateLatex(templateId);
 
-    let htmlStructure = '';
-    let css = 'body { font-family: Arial, sans-serif; padding: 40px; }';
-    if (templateId) {
-      const template = await this.templatesService.findById(templateId);
-      if (template) {
-        htmlStructure = template.htmlStructure;
-        css = template.css;
-      }
-    }
-
-    const html = renderTemplate(htmlStructure, css, data, {
+    const tex = renderLatex(latexSource, data, {
       direction: data.meta?.direction ?? 'ltr',
       locale: cv.locale,
     });
-    return { html };
+
+    return { tex, locale: cv.locale };
   }
 
-  async exportHtml(cvId: string, userId: string): Promise<{ html: string }> {
-    return this.renderCVHtml(cvId, userId);
+  async renderCVPdf(
+    cvId: string,
+    userId: string,
+    draft?: { data?: Record<string, unknown>; templateId?: string | null },
+  ): Promise<Buffer> {
+    const { tex } = await this.buildTex(cvId, userId, draft);
+    const { pdf } = await this.latexCompileClient.compile(tex);
+    return pdf;
   }
 
   async exportPdf(cvId: string, userId: string): Promise<Buffer> {
-    const { html } = await this.renderCVHtml(cvId, userId);
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: 'load', timeout: 15000 });
-      const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '12mm', right: '12mm', bottom: '12mm', left: '12mm' },
-      });
-      return Buffer.from(pdf);
-    } finally {
-      await browser.close();
-    }
+    return this.renderCVPdf(cvId, userId);
   }
 
   async exportDocx(cvId: string, userId: string): Promise<Buffer> {
@@ -107,9 +96,8 @@ export class ExportService {
     return { url, signedUrl: url, path: saved.relativePath, storage: 'local' as const };
   }
 
-  /** Render CV HTML for public share links (no auth). */
-  async renderPublicShare(cvId: string): Promise<{
-    html: string;
+  async renderPublicSharePdf(cvId: string): Promise<{
+    pdf: Buffer;
     title: string;
     locale: string;
     fullName: string;
@@ -120,23 +108,15 @@ export class ExportService {
     const locale = (cv.locale ?? 'en') as 'en' | 'fr' | 'ar';
     const data = normalizeCVData(version?.data ?? {}, locale);
 
-    let htmlStructure = '';
-    let css = 'body { font-family: Arial, sans-serif; padding: 40px; }';
-    if (cv.templateId) {
-      const template = await this.templatesService.findById(cv.templateId);
-      if (template) {
-        htmlStructure = template.htmlStructure;
-        css = template.css;
-      }
-    }
-
-    const html = renderTemplate(htmlStructure, css, data, {
+    const latexSource = await this.resolveTemplateLatex(cv.templateId);
+    const tex = renderLatex(latexSource, data, {
       direction: data.meta?.direction ?? 'ltr',
       locale: cv.locale,
     });
+    const { pdf } = await this.latexCompileClient.compile(tex);
 
     return {
-      html,
+      pdf,
       title: cv.title,
       locale: cv.locale,
       fullName: data.personal?.fullName ?? cv.title,
@@ -144,23 +124,8 @@ export class ExportService {
   }
 
   async exportPublicPdf(cvId: string): Promise<Buffer> {
-    const rendered = await this.renderPublicShare(cvId);
-    if (!rendered) throw new Error('CV not found');
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    try {
-      const page = await browser.newPage();
-      await page.setContent(rendered.html, { waitUntil: 'load', timeout: 15000 });
-      const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '12mm', right: '12mm', bottom: '12mm', left: '12mm' },
-      });
-      return Buffer.from(pdf);
-    } finally {
-      await browser.close();
-    }
+    const rendered = await this.renderPublicSharePdf(cvId);
+    if (!rendered) throw new NotFoundException('CV not found');
+    return rendered.pdf;
   }
 }

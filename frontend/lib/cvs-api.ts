@@ -104,24 +104,6 @@ export function importCVFile(file: File, title?: string) {
   });
 }
 
-export function importCVJsonFile(file: File, title?: string) {
-  const form = new FormData();
-  form.append('file', file);
-  if (title) form.append('title', title);
-  return apiFetch<ImportFileResult>('/cvs/import/json/file', {
-    method: 'POST',
-    body: form,
-  });
-}
-
-export function importCVJsonIntoExisting(cvId: string, file: File) {
-  const form = new FormData();
-  form.append('file', file);
-  return apiFetch<{ cvId: string; message: string; parseMeta?: ParseMeta }>(
-    `/cvs/${cvId}/import/json/file`,
-    { method: 'POST', body: form },
-  );
-}
 
 export interface ParseMetaFields {
   personal: { fullName: string; email: string; phone: string };
@@ -173,9 +155,6 @@ export function applyEnhancement(id: string, data: Record<string, unknown>) {
   });
 }
 
-export function exportCVHtml(id: string) {
-  return apiFetch<{ html: string }>(`/cvs/${id}/export/html`);
-}
 
 export async function exportCVPdf(id: string, filename = 'resume.pdf') {
   const blob = await apiFetchBlob(`/cvs/${id}/export/pdf`);
@@ -209,14 +188,18 @@ export function exportCVDocxUrl(id: string) {
   );
 }
 
-export function previewCV(
+export function previewCVPdf(
   id: string,
   payload?: { data?: Record<string, unknown>; templateId?: string | null },
 ) {
-  return apiFetch<{ html: string }>(`/cvs/${id}/preview`, {
+  return apiFetchBlob(`/cvs/${id}/preview.pdf`, {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),
   });
+}
+
+export function previewCVSavedPdf(id: string) {
+  return apiFetchBlob(`/cvs/${id}/preview.pdf`);
 }
 
 export function shareCV(id: string) {

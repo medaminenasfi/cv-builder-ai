@@ -13,7 +13,7 @@ Run after `npm run migration:run` in backend and with API (3002) + frontend (300
 ## Dashboard
 
 - [ ] KPI cards load real data (`GET /dashboard/stats`)
-- [ ] CV cards: Edit, Duplicate, Share, Delete, Rename, Export PDF/DOCX/HTML, Job Match
+- [ ] CV cards: Edit, Duplicate, Share, Delete, Rename, Export PDF/DOCX, Job Match
 - [ ] Empty state: Create / Import / Templates
 - [ ] Mobile FAB opens create flow
 
@@ -35,8 +35,11 @@ Run after `npm run migration:run` in backend and with API (3002) + frontend (300
 
 ## Templates
 
+- [ ] LaTeX sandbox running (`docker compose up latex-sandbox`, health OK)
+- [ ] Admin: paste `.tex`, Compile & Preview, save template
+- [ ] `npm run seed:templates` loads `templates/*/main.tex`
 - [ ] Use Template on cards and primary CTA
-- [ ] Preview modal: Desktop / Mobile / A4 tabs
+- [ ] Preview modal shows PDF (Desktop / Mobile / A4 tabs)
 
 ## Job Match
 
@@ -47,7 +50,7 @@ Run after `npm run migration:run` in backend and with API (3002) + frontend (300
 
 ## Share
 
-- [ ] Share link renders template (not JSON)
+- [ ] Share link renders PDF (not HTML)
 - [ ] Download PDF via `GET /share/:token/export/pdf`
 - [ ] Print works
 - [ ] Expired link shows clear message
@@ -60,8 +63,14 @@ Run after `npm run migration:run` in backend and with API (3002) + frontend (300
 
 ## Exports
 
-- [ ] PDF, DOCX, HTML from editor and dashboard card
+- [ ] PDF (LaTeX compile), DOCX from editor and dashboard card
 - [ ] Export count increments in dashboard KPIs
+
+## LaTeX compiler
+
+- [ ] `curl http://localhost:8081/health` → `{ "ok": true }`
+- [ ] `npm run test:latex` produces valid PDF
+- [ ] Compiler offline shows clear UI message (not crash)
 
 ## Reliability
 

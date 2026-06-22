@@ -1,16 +1,27 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { previewCV } from '@/lib/cvs-api';
-import { Eye, Maximize2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { previewCVPdf } from '@/lib/cvs-api';
+import { ApiError } from '@/lib/api';
+import { Eye, Maximize2, RefreshCw } from 'lucide-react';
 
 interface CVLivePreviewProps {
   cvId: string;
   data: Record<string, unknown>;
-  /** Bumps when editor data changes — used only to trigger refresh */
   dataRevision: string;
   templateId: string | null;
   templateName?: string;
+}
+
+function extractCompileLog(err: unknown): string {
+  if (err instanceof ApiError && err.data && typeof err.data === 'object') {
+    const d = err.data as { log?: string; message?: string | string[] };
+    if (d.log) return d.log;
+    if (typeof d.message === 'string') return d.message;
+    if (Array.isArray(d.message)) return d.message.join('\n');
+  }
+  if (err instanceof Error) return err.message;
+  return 'Preview failed';
 }
 
 export function CVLivePreview({
@@ -20,55 +31,52 @@ export function CVLivePreview({
   templateId,
   templateName,
 }: CVLivePreviewProps) {
-  const [html, setHtml] = useState<string | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [scale, setScale] = useState(1);
-  const [renderKey, setRenderKey] = useState(0);
+  const [compileLog, setCompileLog] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
+  const pdfUrlRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     if (!dataRevision || dataRevision === 'undefined') return;
 
     const requestId = ++requestIdRef.current;
-    const timer = setTimeout(() => {
-      setLoading(true);
-      setError(null);
-      previewCV(cvId, { data, templateId })
-        .then((r) => {
-          if (requestId !== requestIdRef.current) return;
-          setHtml(r.html);
-          setRenderKey((k) => k + 1);
-        })
-        .catch((e) => {
-          if (requestId !== requestIdRef.current) return;
-          setError(e instanceof Error ? e.message : 'Preview failed');
-          setHtml(null);
-        })
-        .finally(() => {
-          if (requestId !== requestIdRef.current) return;
-          setLoading(false);
-        });
-    }, 300);
+    setLoading(true);
+    setError(null);
+    setCompileLog(null);
 
-    return () => clearTimeout(timer);
+    previewCVPdf(cvId, { data, templateId })
+      .then((blob) => {
+        if (requestId !== requestIdRef.current) return;
+        if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+        const url = URL.createObjectURL(blob);
+        pdfUrlRef.current = url;
+        setPdfUrl(url);
+      })
+      .catch((e) => {
+        if (requestId !== requestIdRef.current) return;
+        const msg = extractCompileLog(e);
+        setError(msg);
+        setCompileLog(msg);
+        setPdfUrl(null);
+      })
+      .finally(() => {
+        if (requestId !== requestIdRef.current) return;
+        setLoading(false);
+      });
   }, [cvId, data, dataRevision, templateId]);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+    const timer = setTimeout(refresh, 1500);
+    return () => clearTimeout(timer);
+  }, [refresh]);
 
-    const updateScale = () => {
-      const w = el.clientWidth - 32;
-      const a4WidthPx = (210 / 25.4) * 96;
-      setScale(Math.min(1, w / a4WidthPx));
+  useEffect(() => {
+    return () => {
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
     };
-
-    updateScale();
-    const ro = new ResizeObserver(updateScale);
-    ro.observe(el);
-    return () => ro.disconnect();
   }, []);
 
   return (
@@ -77,16 +85,26 @@ export function CVLivePreview({
         <div className="flex items-center gap-2">
           <Eye size={16} className="text-purple-500" />
           <div>
-            <p className="text-sm font-medium text-gray-900">Live Preview</p>
+            <p className="text-sm font-medium text-gray-900">Live Preview (PDF)</p>
             <p className="text-[11px] text-gray-500">
-              {templateName ?? 'Default template'} · 1 page
+              {templateName ?? 'Default template'} · LaTeX compile
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {loading && (
-            <span className="text-[10px] text-purple-400 animate-pulse">Updating…</span>
+            <span className="text-[10px] text-purple-400 animate-pulse">Compiling…</span>
           )}
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={loading}
+            className="flex items-center gap-1 text-[10px] text-purple-600 hover:underline disabled:opacity-50"
+            title="Refresh preview"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
           <a
             href={`/cv/${cvId}/preview`}
             className="flex items-center gap-1 text-[10px] text-purple-600 hover:underline"
@@ -100,38 +118,24 @@ export function CVLivePreview({
 
       <div
         ref={containerRef}
-        className="flex-1 relative bg-slate-200 min-h-0 overflow-auto flex items-start justify-center p-4"
+        className="flex-1 relative bg-slate-200 min-h-0 overflow-auto flex flex-col items-center justify-start p-4"
       >
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-red-600">
-            {error}
+          <div className="w-full max-w-lg p-3 mb-2 text-center text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg whitespace-pre-wrap">
+            {compileLog ?? error}
           </div>
         )}
-        {!error && !html && loading && (
+        {!error && !pdfUrl && loading && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
-            Loading preview…
+            Compiling PDF preview…
           </div>
         )}
-        {html && (
-          <div
-            className="origin-top shadow-lg"
-            style={{
-              width: '210mm',
-              minHeight: '297mm',
-              transform: `scale(${scale})`,
-              transformOrigin: 'top center',
-              marginBottom: scale < 1 ? `-${(1 - scale) * 297}mm` : undefined,
-            }}
-          >
-            <iframe
-              key={renderKey}
-              title="CV template preview"
-              srcDoc={html}
-              className="w-full border-0 bg-white"
-              style={{ width: '210mm', minHeight: '297mm' }}
-              sandbox="allow-same-origin"
-            />
-          </div>
+        {pdfUrl && (
+          <iframe
+            title="CV PDF preview"
+            src={pdfUrl}
+            className="w-full flex-1 min-h-[500px] border-0 bg-white shadow-lg rounded"
+          />
         )}
       </div>
     </div>

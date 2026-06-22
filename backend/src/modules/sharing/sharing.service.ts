@@ -34,7 +34,7 @@ export class SharingService {
     link.viewCount = (link.viewCount ?? 0) + 1;
     await this.shareLinksRepository.save(link);
 
-    const rendered = await this.exportService.renderPublicShare(link.cvId);
+    const rendered = await this.exportService.renderPublicSharePdf(link.cvId);
     if (!rendered) return null;
 
     const version = await this.cvsService.getLatestVersion(link.cvId);
@@ -43,7 +43,7 @@ export class SharingService {
       title: rendered.title,
       locale: rendered.locale,
       fullName: rendered.fullName,
-      html: rendered.html,
+      pdfBase64: rendered.pdf.toString('base64'),
       data: version?.data ?? {},
       expiresAt: link.expiresAt.toISOString(),
     };

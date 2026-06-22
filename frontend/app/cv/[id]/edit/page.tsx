@@ -21,7 +21,6 @@ import {
 import {
   applyEnhancement,
   enhanceCV,
-  exportCVHtml,
   exportCVPdf,
   getCV,
   importCVFileIntoExisting,
@@ -367,18 +366,7 @@ function CVEditorPage() {
   const printPdf = async () => {
     try {
       await save();
-      const { html } = await exportCVHtml(id);
-      const w = window.open('', '_blank');
-      if (!w) {
-        setError('Allow pop-ups to export PDF');
-        return;
-      }
-      w.document.write(html);
-      w.document.close();
-      w.onload = () => {
-        w.focus();
-        w.print();
-      };
+      await exportCVPdf(id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Export failed');
     }

@@ -142,6 +142,9 @@ export async function apiFetchBlob(
   const token = await getValidAccessToken(scope);
 
   const headers = new Headers(options.headers);
+  if (!headers.has('Content-Type') && options.body && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -176,6 +179,10 @@ export async function apiFetchBlob(
 /** Admin API calls — uses admin session only */
 export function apiFetchAdmin<T>(path: string, options: RequestInit = {}, retry = true) {
   return apiFetch<T>(path, options, 'admin', retry);
+}
+
+export function apiFetchAdminBlob(path: string, options: RequestInit = {}, retry = true) {
+  return apiFetchBlob(path, options, 'admin', retry);
 }
 
 export async function apiFetchPublic<T>(

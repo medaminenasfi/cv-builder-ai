@@ -1,14 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { previewActiveTemplate } from '@/lib/templates-api'
+import { useEffect, useRef, useState } from 'react'
+import { previewActiveTemplatePdf } from '@/lib/templates-api'
 
 interface TemplatePreviewFrameProps {
   templateId: string
   templateName: string
   thumbnailUrl?: string | null
   compact?: boolean
-  /** Scaled thumbnail for template gallery cards (aspect container). */
   card?: boolean
   rtl?: boolean
 }
@@ -21,21 +20,30 @@ export function TemplatePreviewFrame({
   card = false,
   rtl = false,
 }: TemplatePreviewFrameProps) {
-  const [html, setHtml] = useState<string | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const [error, setError] = useState(false)
+  const urlRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setError(false)
-    previewActiveTemplate(templateId, rtl)
-      .then((r) => {
-        if (!cancelled) setHtml(r.html)
+    previewActiveTemplatePdf(templateId, rtl)
+      .then((blob) => {
+        if (cancelled) return
+        if (urlRef.current) URL.revokeObjectURL(urlRef.current)
+        const url = URL.createObjectURL(blob)
+        urlRef.current = url
+        setPdfUrl(url)
       })
       .catch(() => {
         if (!cancelled) setError(true)
       })
     return () => {
       cancelled = true
+      if (urlRef.current) {
+        URL.revokeObjectURL(urlRef.current)
+        urlRef.current = null
+      }
     }
   }, [templateId, rtl])
 
@@ -60,38 +68,7 @@ export function TemplatePreviewFrame({
     )
   }
 
-  if (card) {
-    const initial = templateName.trim().charAt(0).toUpperCase() || 'T'
-
-    return (
-      <div className="absolute inset-0 overflow-hidden bg-purple-50">
-        {!html && !error && (
-          <div className="absolute inset-0 flex items-center justify-center text-2xl font-medium text-purple-300">
-            {initial}
-          </div>
-        )}
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center text-2xl font-medium text-purple-300">
-            {initial}
-          </div>
-        )}
-        {html && (
-          <div
-            className="absolute top-0 left-0 origin-top-left pointer-events-none"
-            style={{ transform: 'scale(0.18)', width: '555.56%', height: '555.56%' }}
-          >
-            <iframe
-              title={`${templateName} preview`}
-              srcDoc={html}
-              className="w-full min-h-[1100px] border-0 bg-white"
-              sandbox="allow-same-origin"
-            />
-          </div>
-        )}
-      </div>
-    )
-  }
-
+  const initial = templateName.trim().charAt(0).toUpperCase() || 'T'
   const heightClass = compact ? 'h-36' : 'min-h-[420px] h-full'
 
   return (
@@ -100,26 +77,25 @@ export function TemplatePreviewFrame({
         compact ? 'rounded-lg' : 'rounded-xl shadow-inner'
       }`}
     >
-      {!html && !error && (
+      {!pdfUrl && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-50 text-xs text-slate-400">
           Loading preview…
         </div>
       )}
-      {error && (
+      {(error || (!pdfUrl && card)) && (
         <div className="absolute inset-0 flex items-center justify-center bg-purple-50 text-xs text-purple-600 p-4 text-center">
-          {templateName}
+          {error ? templateName : initial}
         </div>
       )}
-      {html && (
+      {pdfUrl && (
         <iframe
           title={`${templateName} preview`}
-          srcDoc={html}
+          src={pdfUrl}
           className={
-            compact
+            card
               ? 'w-[200%] h-[200%] origin-top-left scale-50 border-0 pointer-events-none bg-white'
               : 'w-full h-full min-h-[500px] border-0 bg-white'
           }
-          sandbox="allow-same-origin"
         />
       )}
     </div>

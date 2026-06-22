@@ -9,6 +9,11 @@ import {
 } from 'typeorm';
 import { UserEntity } from '../../users/entities/user.entity';
 
+export enum TemplateEngine {
+  LATEX = 'latex',
+  HTML = 'html',
+}
+
 @Entity('templates')
 export class TemplateEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -20,11 +25,17 @@ export class TemplateEntity {
   @Column()
   name: string;
 
-  @Column({ name: 'html_structure', type: 'text' })
-  htmlStructure: string;
+  @Column({ type: 'enum', enum: TemplateEngine, default: TemplateEngine.LATEX })
+  engine: TemplateEngine;
 
-  @Column({ type: 'text' })
-  css: string;
+  @Column({ name: 'latex_source', type: 'text', nullable: true })
+  latexSource: string | null;
+
+  @Column({ name: 'html_structure', type: 'text', nullable: true })
+  htmlStructure: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  css: string | null;
 
   @Column({ name: 'thumbnail_url', type: 'varchar', nullable: true })
   thumbnailUrl: string | null;

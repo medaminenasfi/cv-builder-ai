@@ -1,17 +1,73 @@
-import { apiFetch, apiFetchAdmin } from './api';
+import { apiFetch, apiFetchAdmin, apiFetchBlob, apiFetchAdminBlob } from './api';
 
 export interface Template {
   id: string;
   slug: string;
   name: string;
-  htmlStructure: string;
-  css: string;
+  engine: 'latex' | 'html';
+  latexSource: string | null;
   thumbnailUrl: string | null;
   isActive: boolean;
   supportsRtl: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface BundledTemplateResult {
+  name: string;
+  slug: string;
+  latexSource: string;
+  supportsRtl: boolean;
+  notes: string;
+}
+
+export const LATEX_PLACEHOLDERS = [
+  '{{fullName}}',
+  '{{title}}',
+  '{{email}}',
+  '{{phone}}',
+  '{{location}}',
+  '{{linkedin}}',
+  '{{website}}',
+  '{{contactLine}}',
+  '{{summary}}',
+  '{{experience}}',
+  '{{education}}',
+  '{{skills}}',
+  '{{languages}}',
+  '{{technologies}}',
+  '{{certifications}}',
+  '{{projects}}',
+  '{{summaryTitle}}',
+  '{{experienceTitle}}',
+  '{{educationTitle}}',
+  '{{skillsTitle}}',
+  '{{languagesTitle}}',
+  '{{technologiesTitle}}',
+  '{{certificationsTitle}}',
+  '{{projectsTitle}}',
+] as const;
+
+export const DEFAULT_LATEX_TEMPLATE = String.raw`\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[margin=2cm]{geometry}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\begin{document}
+\begin{center}
+  {\LARGE\textbf{{{fullName}}}}\\[4pt]
+  {{title}}\\[2pt]
+  {{contactLine}}
+\end{center}
+\section*{{{summaryTitle}}}
+{{summary}}
+\section*{{{experienceTitle}}}
+{{experience}}
+\section*{{{skillsTitle}}}
+{{skills}}
+\end{document}`;
 
 export function listActiveTemplates() {
   return apiFetch<Template[]>('/templates');
@@ -43,34 +99,19 @@ export function deleteTemplate(id: string) {
   return apiFetchAdmin<void>(`/admin/templates/${id}`, { method: 'DELETE' });
 }
 
-export function previewActiveTemplate(id: string, rtl = false) {
-  return apiFetch<{ html: string }>(`/templates/${id}/preview?rtl=${rtl}`);
+export function previewActiveTemplatePdf(id: string, rtl = false) {
+  return apiFetchBlob(`/templates/${id}/preview.pdf?rtl=${rtl}`);
 }
 
-export function previewTemplate(id: string, rtl = false) {
-  return apiFetchAdmin<{ html: string }>(`/admin/templates/${id}/preview?rtl=${rtl}`);
+export function previewTemplatePdf(id: string, rtl = false) {
+  return apiFetchAdminBlob(`/admin/templates/${id}/preview.pdf?rtl=${rtl}`);
 }
 
-export interface TemplateImportResult {
-  name: string;
-  slug?: string;
-  htmlStructure: string;
-  css: string;
-  supportsRtl: boolean;
-  confidence: { overall: number; layout: number; styling: number };
-  notes?: string;
-}
-
-export function isCvResumeJson(data: unknown): boolean {
-  if (!data || typeof data !== 'object') return false;
-  const o = data as Record<string, unknown>;
-  if (typeof o.htmlStructure === 'string' && typeof o.css === 'string') return false;
-  return Boolean(
-    o.personal_info ||
-      o.profile ||
-      (Array.isArray(o.experience) && o.experience.length > 0) ||
-      (o.personal && typeof o.personal === 'object'),
-  );
+export function compileLatex(tex: string) {
+  return apiFetchAdminBlob('/admin/templates/latex/compile', {
+    method: 'POST',
+    body: JSON.stringify({ tex }),
+  });
 }
 
 export function listBundledTemplates() {
@@ -80,44 +121,7 @@ export function listBundledTemplates() {
 }
 
 export function loadBundledTemplate(slug: string) {
-  return apiFetchAdmin<TemplateImportResult>(`/admin/templates/bundled/${slug}/load`, {
+  return apiFetchAdmin<BundledTemplateResult>(`/admin/templates/bundled/${slug}/load`, {
     method: 'POST',
   });
 }
-
-export async function importTemplateFromJson(file: File) {
-  const text = await file.text();
-  return importTemplateJsonText(text);
-}
-
-export function importTemplateJsonText(text: string) {
-  return apiFetchAdmin<TemplateImportResult>('/admin/templates/import/json/text', {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  });
-}
-
-export function importTemplateFromHtmlCss(htmlFile: File, cssFile: File, name?: string) {
-  const form = new FormData();
-  form.append('html', htmlFile);
-  form.append('css', cssFile);
-  if (name?.trim()) form.append('name', name.trim());
-  return apiFetchAdmin<TemplateImportResult>('/admin/templates/import/package', {
-    method: 'POST',
-    body: form,
-  });
-}
-
-export const TEMPLATE_JSON_EXAMPLE = {
-  name: 'My Template',
-  slug: 'my-template',
-  htmlStructure: `<div class="cv-root">
-  <h1>{{fullName}}</h1>
-  <p>{{contactLine}}</p>
-  <section>{{summary}}</section>
-  <section>{{experience}}</section>
-  <section>{{skills}}</section>
-</div>`,
-  css: `.cv-root { font-family: sans-serif; max-width: 800px; margin: 0 auto; }`,
-  supportsRtl: false,
-} as const;

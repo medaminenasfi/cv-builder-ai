@@ -8,7 +8,6 @@ import {
   Pencil,
   FileDown,
   FileType,
-  Code,
   Briefcase,
   Sparkles,
   ExternalLink,
@@ -34,7 +33,6 @@ interface CVCardProps {
   onRename?: (id: string, title: string) => void
   onExportPdf?: (id: string) => void
   onExportDocx?: (id: string) => void
-  onExportHtml?: (id: string) => void
   onJobMatch?: (id: string) => void
   onAiImprove?: (id: string) => void
 }
@@ -69,7 +67,6 @@ export function CVCard({
   onRename,
   onExportPdf,
   onExportDocx,
-  onExportHtml,
   onJobMatch,
   onAiImprove,
 }: CVCardProps) {
@@ -143,7 +140,6 @@ export function CVCard({
                   { label: 'Share', icon: Share2, fn: () => onShare?.(cv.id) },
                   { label: 'Export PDF', icon: FileDown, fn: () => onExportPdf?.(cv.id) },
                   { label: 'Export DOCX', icon: FileType, fn: () => onExportDocx?.(cv.id) },
-                  { label: 'Export HTML', icon: Code, fn: () => onExportHtml?.(cv.id) },
                   { label: 'Job Match', icon: Briefcase, fn: () => onJobMatch?.(cv.id) },
                   { label: 'AI Improve', icon: Sparkles, fn: () => onAiImprove?.(cv.id) },
                 ].map((item) => (

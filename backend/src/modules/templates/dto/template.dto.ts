@@ -1,10 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsEnum,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
+import { TemplateEngine } from '../entities/template.entity';
 
 export class CreateTemplateDto {
   @ApiProperty()
@@ -19,11 +21,13 @@ export class CreateTemplateDto {
 
   @ApiProperty()
   @IsString()
-  htmlStructure: string;
+  @MinLength(10)
+  latexSource: string;
 
-  @ApiProperty()
-  @IsString()
-  css: string;
+  @ApiPropertyOptional({ enum: TemplateEngine })
+  @IsOptional()
+  @IsEnum(TemplateEngine)
+  engine?: TemplateEngine;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -50,12 +54,12 @@ export class UpdateTemplateDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  htmlStructure?: string;
+  latexSource?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ enum: TemplateEngine })
   @IsOptional()
-  @IsString()
-  css?: string;
+  @IsEnum(TemplateEngine)
+  engine?: TemplateEngine;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -71,4 +75,11 @@ export class UpdateTemplateDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+export class CompileLatexDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(10)
+  tex: string;
 }

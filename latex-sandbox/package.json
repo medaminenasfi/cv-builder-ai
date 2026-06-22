@@ -1,0 +1,6 @@
+{
+  "name": "latex-sandbox",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated LaTeX compile service for CV Builder"
+}

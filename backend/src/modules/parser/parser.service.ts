@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 import { Repository } from 'typeorm';
-import { parseAndCoerceAiCV, importStructuredCvJson } from '../../common/cv-parse-coerce.util';
+import { parseAndCoerceAiCV } from '../../common/cv-parse-coerce.util';
 import { emptyCVData, normalizeCVData, type CVData } from '../../common/cv-schema';
 import {
   cleanResumeText,
@@ -65,118 +65,6 @@ export class ParserService {
     @InjectRepository(ParseAnalyticsEntity)
     private readonly parseAnalyticsRepo: Repository<ParseAnalyticsEntity>,
   ) {}
-
-  async importFromJson(
-    user: UserEntity,
-    title: string,
-    payload: unknown,
-  ) {
-    const { data, parseMeta } = this.jsonPayloadToCVData(payload, user);
-    const saved = await this.saveImportedCV(user, title, data, parseMeta);
-    return { ...saved, parseMeta };
-  }
-
-  async importJsonIntoExisting(
-    cvId: string,
-    user: UserEntity,
-    payload: unknown,
-  ) {
-    await this.cvsService.findById(cvId, user.id);
-    const { data, parseMeta } = this.jsonPayloadToCVData(payload, user);
-    await this.cvsService.updateData(
-      cvId,
-      user.id,
-      { data: data as unknown as Record<string, unknown> },
-      CVVersionSource.IMPORT,
-    );
-    return {
-      cvId,
-      message: 'JSON import merged into this CV — review your fields',
-      parseMeta,
-    };
-  }
-
-  async importFromJsonFile(
-    user: UserEntity,
-    title: string,
-    buffer: Buffer,
-    originalName?: string,
-  ) {
-    let payload: unknown;
-    try {
-      payload = JSON.parse(buffer.toString('utf8'));
-    } catch {
-      throw new BadRequestException('Invalid JSON file — check syntax and try again');
-    }
-    const derivedTitle =
-      title?.trim() ||
-      originalName?.replace(/\.json$/i, '') ||
-      'Imported Resume';
-    return this.importFromJson(user, derivedTitle, payload);
-  }
-
-  async importJsonFileIntoExisting(
-    cvId: string,
-    user: UserEntity,
-    buffer: Buffer,
-  ) {
-    let payload: unknown;
-    try {
-      payload = JSON.parse(buffer.toString('utf8'));
-    } catch {
-      throw new BadRequestException('Invalid JSON file — check syntax and try again');
-    }
-    return this.importJsonIntoExisting(cvId, user, payload);
-  }
-
-  private jsonPayloadToCVData(
-    payload: unknown,
-    user: UserEntity,
-  ): { data: CVData; parseMeta: ParseMetaResult } {
-    const sampleText = JSON.stringify(payload).slice(0, 4000);
-    const detectedLocale = detectLocaleFromText(
-      sampleText,
-      user.locale as 'en' | 'fr' | 'ar',
-    );
-    let data = importStructuredCvJson(payload, detectedLocale);
-    if (!data.personal.email) data.personal.email = user.email;
-    if (!data.personal.title && data.experience[0]?.role) {
-      data.personal.title = data.experience[0].role;
-    }
-    data = validateAndRepairCVData(data);
-    data.meta.locale = detectedLocale;
-    data.meta.direction = localeToDirection(detectedLocale);
-    data.meta.parseMeta = {
-      source: 'json_import',
-      usedAi: false,
-    } as unknown as Record<string, unknown>;
-
-    if (
-      !data.personal.fullName &&
-      !data.experience.length &&
-      !data.skills.length &&
-      !data.summary
-    ) {
-      throw new BadRequestException(
-        'JSON is missing CV content (name, experience, skills, or profile).',
-      );
-    }
-
-    const confidence = scoreParseConfidence(data, sampleText.length);
-    const parseMeta: ParseMetaResult = {
-      ...confidence,
-      detectedLocale,
-      usedOcr: false,
-      usedAi: false,
-    };
-    data.meta.parseMeta = parseMeta as unknown as Record<string, unknown>;
-
-    this.logger.log(
-      `JSON import (${detectedLocale}): ${data.personal.fullName || 'unnamed'}, ${data.experience.length} jobs`,
-    );
-
-    return { data, parseMeta };
-  }
 
   async importFromText(user: UserEntity, title: string, rawText: string) {
     const cleaned = cleanResumeText(rawText);

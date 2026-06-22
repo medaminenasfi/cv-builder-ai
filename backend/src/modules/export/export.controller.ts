@@ -18,14 +18,8 @@ export class ExportController {
     private readonly dashboardStats: DashboardStatsService,
   ) {}
 
-  @Get(':id/export/html')
-  async exportHtml(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    await this.dashboardStats.logExport(user.id, id, 'html');
-    return this.exportService.exportHtml(id, user.id);
-  }
-
   @Get(':id/export/pdf')
-  @ApiOperation({ summary: 'Export CV as A4 PDF (server-side)' })
+  @ApiOperation({ summary: 'Export CV as A4 PDF (LaTeX compile)' })
   async exportPdf(
     @Param('id') id: string,
     @CurrentUser() user: UserEntity,
@@ -67,14 +61,21 @@ export class ExportController {
     return this.exportService.exportDocxToStorage(id, user.id);
   }
 
-  @Get(':id/preview')
-  @ApiOperation({ summary: 'Preview CV with saved data and template' })
-  previewSaved(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.exportService.renderCVHtml(id, user.id);
+  @Get(':id/preview.pdf')
+  @ApiOperation({ summary: 'Preview CV PDF with saved data and template' })
+  async previewSavedPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: UserEntity,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.exportService.renderCVPdf(id, user.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+    res.send(buffer);
   }
 
-  @Post(':id/preview')
-  @ApiOperation({ summary: 'Live preview with draft CV data (editor)' })
+  @Post(':id/preview.pdf')
+  @ApiOperation({ summary: 'Live preview PDF with draft CV data (editor)' })
   @UsePipes(
     new ValidationPipe({
       transform: true,
@@ -82,14 +83,18 @@ export class ExportController {
       forbidNonWhitelisted: false,
     }),
   )
-  previewDraft(
+  async previewDraftPdf(
     @Param('id') id: string,
     @Body() dto: PreviewCVDto,
     @CurrentUser() user: UserEntity,
+    @Res() res: Response,
   ) {
-    return this.exportService.renderCVHtml(id, user.id, {
+    const buffer = await this.exportService.renderCVPdf(id, user.id, {
       data: dto.data,
       templateId: dto.templateId,
     });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+    res.send(buffer);
   }
 }

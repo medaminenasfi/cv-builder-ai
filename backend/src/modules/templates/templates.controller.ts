@@ -8,23 +8,23 @@ import {
   Patch,
   Post,
   Query,
-  UploadedFile,
-  UploadedFiles,
+  Res,
   UseGuards,
-  UseInterceptors,
-  BadRequestException,
 } from '@nestjs/common';
-import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
-import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user.enum';
 import { JwtAuthGuard, RolesGuard } from '../../common/guards/auth.guards';
 import { UserEntity } from '../users/entities/user.entity';
-import { CreateTemplateDto, UpdateTemplateDto } from './dto/template.dto';
+import { renderLatex } from '../../template-engine/latex/render-latex';
+import {
+  CompileLatexDto,
+  CreateTemplateDto,
+  UpdateTemplateDto,
+} from './dto/template.dto';
 import { TemplatesService } from './templates.service';
-import { TemplateImportService } from './template-import.service';
 import { BuiltinTemplatesService } from './builtin-templates.service';
 
 @ApiTags('templates')
@@ -40,14 +40,21 @@ export class TemplatesController {
     return this.templatesService.findActive();
   }
 
-  @Get(':id/preview')
-  @ApiOperation({ summary: 'Preview an active template with sample CV data' })
-  async preview(@Param('id') id: string, @Query('rtl') rtl?: string) {
+  @Get(':id/preview.pdf')
+  @ApiOperation({ summary: 'Preview an active template with sample CV data (PDF)' })
+  async previewPdf(
+    @Param('id') id: string,
+    @Query('rtl') rtl: string | undefined,
+    @Res() res: Response,
+  ) {
     const template = await this.templatesService.findById(id);
     if (!template?.isActive) {
       throw new NotFoundException('Template not found');
     }
-    return { html: this.templatesService.preview(template, rtl === 'true') };
+    const pdf = await this.templatesService.previewPdf(template, rtl === 'true');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="template-preview.pdf"');
+    res.send(pdf);
   }
 }
 
@@ -59,7 +66,6 @@ export class TemplatesController {
 export class AdminTemplatesController {
   constructor(
     private readonly templatesService: TemplatesService,
-    private readonly templateImportService: TemplateImportService,
     private readonly builtinTemplatesService: BuiltinTemplatesService,
   ) {}
 
@@ -73,84 +79,14 @@ export class AdminTemplatesController {
     return this.builtinTemplatesService.loadBundled(slug);
   }
 
-  @Post('import')
-  @ApiOperation({
-    summary: 'Import template from PDF/image (AI), or a .json package (no AI)',
-  })
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 10 * 1024 * 1024 },
-    }),
-  )
-  async importFromFile(@UploadedFile() file?: Express.Multer.File) {
-    if (!file?.buffer?.length) {
-      throw new BadRequestException(
-        'Upload a .json package, PDF, PNG, or JPEG file',
-      );
-    }
-    return this.templateImportService.extractTemplateConfigFromFile(
-      file.buffer,
-      file.mimetype,
-      file.originalname,
-    );
-  }
-
-  @Post('import/json/text')
-  @ApiOperation({
-    summary: 'Import template from pasted ChatGPT JSON (auto-repairs broken quotes)',
-  })
-  importFromJsonText(@Body() body: { text?: string }) {
-    if (!body?.text?.trim()) {
-      throw new BadRequestException('Paste the JSON text from ChatGPT');
-    }
-    return this.templateImportService.importFromJsonText(body.text);
-  }
-
-  @Post('import/json')
-  @ApiOperation({ summary: 'Import template design from JSON (htmlStructure + css)' })
-  importFromJson(@Body() body: unknown) {
-    if (!body || typeof body !== 'object') {
-      throw new BadRequestException('Send a JSON object with name, htmlStructure, and css');
-    }
-    return this.templateImportService.importFromJsonPayload(body);
-  }
-
-  @Post('import/package')
-  @ApiOperation({ summary: 'Import template from HTML + CSS files (no AI)' })
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: 'html', maxCount: 1 },
-        { name: 'css', maxCount: 1 },
-      ],
-      {
-        storage: memoryStorage(),
-        limits: { fileSize: 2 * 1024 * 1024 },
-      },
-    ),
-  )
-  async importFromPackage(
-    @UploadedFiles()
-    files: { html?: Express.Multer.File[]; css?: Express.Multer.File[] },
-    @Body('name') name?: string,
-  ) {
-    const htmlFile = files.html?.[0];
-    const cssFile = files.css?.[0];
-    if (!htmlFile?.buffer?.length || !cssFile?.buffer?.length) {
-      throw new BadRequestException('Upload both an HTML file and a CSS file');
-    }
-    const derivedName =
-      name?.trim() ||
-      htmlFile.originalname.replace(/\.html?$/i, '') ||
-      'Imported Template';
-    return this.templateImportService.importTemplatePackage({
-      name: derivedName,
-      htmlStructure: htmlFile.buffer.toString('utf8'),
-      css: cssFile.buffer.toString('utf8'),
-    });
+  @Post('latex/compile')
+  @ApiOperation({ summary: 'Compile pasted LaTeX without saving (sandbox test)' })
+  async compileLatex(@Body() dto: CompileLatexDto, @Res() res: Response) {
+    const tex = renderLatex(dto.tex);
+    const pdf = await this.templatesService.compileTex(tex);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="compile-test.pdf"');
+    res.send(pdf);
   }
 
   @Get()
@@ -178,10 +114,17 @@ export class AdminTemplatesController {
     return this.templatesService.remove(id);
   }
 
-  @Get(':id/preview')
-  async preview(@Param('id') id: string, @Query('rtl') rtl?: string) {
+  @Get(':id/preview.pdf')
+  async previewPdf(
+    @Param('id') id: string,
+    @Query('rtl') rtl: string | undefined,
+    @Res() res: Response,
+  ) {
     const template = await this.templatesService.findById(id);
     if (!template) throw new NotFoundException('Template not found');
-    return { html: this.templatesService.preview(template, rtl === 'true') };
+    const pdf = await this.templatesService.previewPdf(template, rtl === 'true');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="template-preview.pdf"');
+    res.send(pdf);
   }
 }

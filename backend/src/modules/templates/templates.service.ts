@@ -6,15 +6,17 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../users/entities/user.entity';
+import { renderLatex } from '../../template-engine/latex/render-latex';
+import { LatexCompileClient } from '../latex/latex-compile.client';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto/template.dto';
-import { TemplateEntity } from './entities/template.entity';
-import { renderTemplate } from '../../template-engine/render';
+import { TemplateEngine, TemplateEntity } from './entities/template.entity';
 
 @Injectable()
 export class TemplatesService {
   constructor(
     @InjectRepository(TemplateEntity)
     private readonly templatesRepository: Repository<TemplateEntity>,
+    private readonly latexCompileClient: LatexCompileClient,
   ) {}
 
   findActive(): Promise<TemplateEntity[]> {
@@ -40,6 +42,7 @@ export class TemplatesService {
     const template = this.templatesRepository.create({
       ...dto,
       slug,
+      engine: dto.engine ?? TemplateEngine.LATEX,
       createdBy: user.id,
     });
     return this.templatesRepository.save(template);
@@ -65,9 +68,16 @@ export class TemplatesService {
     await this.templatesRepository.remove(template);
   }
 
-  preview(template: TemplateEntity, rtl = false): string {
-    return renderTemplate(template.htmlStructure, template.css, undefined, {
+  async previewPdf(template: TemplateEntity, rtl = false): Promise<Buffer> {
+    const tex = renderLatex(template.latexSource ?? '', undefined, {
       direction: rtl ? 'rtl' : 'ltr',
     });
+    const { pdf } = await this.latexCompileClient.compile(tex);
+    return pdf;
+  }
+
+  async compileTex(tex: string): Promise<Buffer> {
+    const { pdf } = await this.latexCompileClient.compile(tex);
+    return pdf;
   }
 }

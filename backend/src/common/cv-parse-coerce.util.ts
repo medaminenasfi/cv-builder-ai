@@ -413,15 +413,6 @@ export function coerceAiParseResult(raw: unknown): Partial<CVData> {
   };
 }
 
-/** Import structured JSON (e.g. from ChatGPT) without AI parsing. */
-export function importStructuredCvJson(
-  raw: unknown,
-  locale: 'en' | 'fr' | 'ar' = 'en',
-): CVData {
-  const coerced = coerceAiParseResult(raw);
-  return normalizeCVData(coerced, locale);
-}
-
 export function parseAndCoerceAiCV(raw: string, locale: 'en' | 'fr' | 'ar'): CVData {
   const json = parseAiJson<unknown>(raw);
   const coerced = coerceAiParseResult(json);

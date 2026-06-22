@@ -1,9 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { TemplateConfig } from './template-import.types';
 
-const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl']);
+const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl', 'modern-fr', 'jake-resume']);
 
 function titleFromSlug(slug: string): string {
   return slug
@@ -24,6 +23,14 @@ function resolveTemplatesRoot(): string {
   return candidates[0];
 }
 
+export interface BundledTemplateConfig {
+  name: string;
+  slug: string;
+  latexSource: string;
+  supportsRtl: boolean;
+  notes: string;
+}
+
 @Injectable()
 export class BuiltinTemplatesService {
   listBundled(): { slug: string; name: string; supportsRtl: boolean }[] {
@@ -33,6 +40,10 @@ export class BuiltinTemplatesService {
     return fs
       .readdirSync(root, { withFileTypes: true })
       .filter((d) => d.isDirectory())
+      .filter((d) => {
+        const texPath = path.join(root, d.name, 'main.tex');
+        return fs.existsSync(texPath);
+      })
       .map((d) => ({
         slug: d.name,
         name: titleFromSlug(d.name),
@@ -41,34 +52,22 @@ export class BuiltinTemplatesService {
       .sort((a, b) => a.slug.localeCompare(b.slug));
   }
 
-  loadBundled(slug: string): TemplateConfig {
+  loadBundled(slug: string): BundledTemplateConfig {
     const root = resolveTemplatesRoot();
     const dir = path.join(root, slug);
-    const htmlPath = path.join(dir, 'template.html');
-    const cssPath = path.join(dir, 'template.css');
+    const texPath = path.join(dir, 'main.tex');
 
-    if (!fs.existsSync(dir)) {
-      throw new NotFoundException(`Built-in template "${slug}" not found`);
+    if (!fs.existsSync(texPath)) {
+      throw new NotFoundException(`Built-in LaTeX template "${slug}" not found`);
     }
 
-    const htmlStructure = fs.existsSync(htmlPath)
-      ? fs.readFileSync(htmlPath, 'utf-8')
-      : '';
-    const css = fs.existsSync(cssPath) ? fs.readFileSync(cssPath, 'utf-8') : '';
-
-    if (!htmlStructure.trim() || !css.trim()) {
-      throw new NotFoundException(
-        `Template "${slug}" is missing template.html or template.css`,
-      );
-    }
+    const latexSource = fs.readFileSync(texPath, 'utf-8');
 
     return {
       name: titleFromSlug(slug),
       slug,
-      htmlStructure,
-      css,
+      latexSource,
       supportsRtl: RTL_SLUGS.has(slug),
-      confidence: { overall: 1, layout: 1, styling: 1 },
       notes: 'Loaded from project templates/ folder',
     };
   }

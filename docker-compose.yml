@@ -24,6 +24,34 @@ services:
     volumes:
       - redis_data:/data
 
+  latex-sandbox:
+    build: ./latex-sandbox
+    container_name: cvbuilder-latex
+    ports:
+      - '8081:8081'
+    environment:
+      COMPILE_TIMEOUT_MS: 180000
+      MAX_TEX_BYTES: 262144
+      TECTONIC_CACHE_DIR: /var/cache/tectonic
+    volumes:
+      - tectonic_cache:/var/cache/tectonic
+    read_only: true
+    tmpfs:
+      - /tmp:size=256M,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8081/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 768M
+
 volumes:
   postgres_data:
   redis_data:
+  tectonic_cache:

@@ -28,45 +28,6 @@ export class ParserController {
     private readonly parserQueueService: ParserQueueService,
   ) {}
 
-  @Post('json')
-  importJson(
-    @Body() body: { title?: string; data: unknown },
-    @CurrentUser() user: UserEntity,
-  ) {
-    if (!body?.data || typeof body.data !== 'object') {
-      throw new BadRequestException('Request body must include a data object');
-    }
-    return this.parserService.importFromJson(
-      user,
-      body.title?.trim() || 'Imported Resume',
-      body.data,
-    );
-  }
-
-  @Post('json/file')
-  @ApiConsumes('multipart/form-data')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: memoryStorage(),
-      limits: { fileSize: 2 * 1024 * 1024 },
-    }),
-  )
-  importJsonFile(
-    @UploadedFile() file: Express.Multer.File | undefined,
-    @Body() body: { title?: string },
-    @CurrentUser() user: UserEntity,
-  ) {
-    if (!file?.buffer?.length) {
-      throw new BadRequestException('Upload a .json CV file');
-    }
-    return this.parserService.importFromJsonFile(
-      user,
-      body.title ?? '',
-      file.buffer,
-      file.originalname,
-    );
-  }
-
   @Post()
   import(
     @Body() body: { title: string; rawText: string },
