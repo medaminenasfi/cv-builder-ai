@@ -5,6 +5,7 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { CVEntity } from '../../cvs/entities/cv.entity';
 
@@ -23,6 +24,12 @@ export class ShareLinkEntity {
   @Column({ name: 'expires_at', type: 'timestamptz' })
   expiresAt: Date;
 
+  @Column({ name: 'view_count', type: 'int', default: 0 })
+  viewCount: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }

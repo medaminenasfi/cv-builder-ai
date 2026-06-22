@@ -9,6 +9,26 @@ import type { AuthResponse } from './types/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002/api';
 
+function parseJsonBody<T>(text: string, status: number): T {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return undefined as T;
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new ApiError(`Invalid JSON response (${status})`, status);
+  }
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  const text = await response.text();
+  return parseJsonBody<T>(text, response.status);
+}
+
 function formatApiErrorMessage(data: unknown, status: number): string {
   if (typeof data === 'object' && data !== null && 'message' in data) {
     const msg = (data as { message: unknown }).message;
@@ -47,7 +67,11 @@ async function refreshAccessToken(scope: SessionScope): Promise<string | null> {
     return null;
   }
 
-  const data = (await response.json()) as AuthResponse;
+  const data = await readJsonResponse<AuthResponse>(response);
+  if (!data?.accessToken) {
+    clearSession(scope);
+    return null;
+  }
   setSession(scope, data.accessToken, data.refreshToken, data.user.role);
   return data.accessToken;
 }
@@ -97,7 +121,8 @@ export async function apiFetch<T>(
   if (!response.ok) {
     let data: unknown;
     try {
-      data = await response.json();
+      const text = await response.text();
+      data = text.trim() ? parseJsonBody(text, response.status) : undefined;
     } catch {
       data = undefined;
     }
@@ -105,11 +130,7 @@ export async function apiFetch<T>(
     throw new ApiError(message, response.status, data);
   }
 
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
+  return readJsonResponse<T>(response);
 }
 
 export async function apiFetchBlob(
@@ -175,7 +196,8 @@ export async function apiFetchPublic<T>(
   if (!response.ok) {
     let data: unknown;
     try {
-      data = await response.json();
+      const text = await response.text();
+      data = text.trim() ? parseJsonBody(text, response.status) : undefined;
     } catch {
       data = undefined;
     }
@@ -183,9 +205,5 @@ export async function apiFetchPublic<T>(
     throw new ApiError(message, response.status, data);
   }
 
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return response.json() as Promise<T>;
+  return readJsonResponse<T>(response);
 }

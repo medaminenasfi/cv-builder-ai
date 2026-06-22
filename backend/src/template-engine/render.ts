@@ -61,6 +61,20 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
+/** Upgrade legacy templates that only show email so location/phone appear in preview. */
+function normalizeTemplateContactPlaceholders(html: string): string {
+  return html
+    .replace(
+      /<p class="subtitle">\{\{title\}\}\s*·\s*\{\{email\}\}<\/p>/gi,
+      '<p class="subtitle">{{title}}</p><p class="contact">{{contactLine}}</p>',
+    )
+    .replace(
+      /<p>\{\{title\}\}<\/p>\s*<p>\{\{email\}\}<\/p>/gi,
+      '<p>{{title}}</p><p>{{contactLine}}</p>',
+    )
+    .replace(/<p class="email">\{\{email\}\}<\/p>/gi, '<p class="contact">{{contactLine}}</p>');
+}
+
 function formatDateRange(start: string, end?: string | 'present'): string {
   const endLabel = end === 'present' ? 'Présent' : (end ?? '');
   return endLabel ? `${start} – ${endLabel}` : start;
@@ -69,6 +83,7 @@ function formatDateRange(start: string, end?: string | 'present'): string {
 function renderContactLine(data: CVData): string {
   const { personal } = data;
   const parts: string[] = [];
+  if (personal.location) parts.push(escapeHtml(personal.location));
   if (personal.phone) parts.push(escapeHtml(personal.phone));
   if (personal.email) {
     parts.push(
@@ -203,7 +218,7 @@ export function renderTemplate(
 
   const locale = (options.locale ?? cvData.meta.locale ?? 'en') as string;
 
-  let body = htmlStructure
+  let body = normalizeTemplateContactPlaceholders(htmlStructure)
     .replace(/\{\{fullName\}\}/g, escapeHtml(cvData.personal.fullName))
     .replace(/\{\{title\}\}/g, escapeHtml(cvData.personal.title))
     .replace(/\{\{email\}\}/g, escapeHtml(cvData.personal.email))
@@ -243,7 +258,7 @@ export function renderTemplate(
         : '';
     body = `
       <div class="cv-root">
-        <header><h1>${escapeHtml(cvData.personal.fullName)}</h1><p>${escapeHtml(cvData.personal.title)}</p></header>
+        <header><h1>${escapeHtml(cvData.personal.fullName)}</h1><p>${escapeHtml(cvData.personal.title)}</p><p>${renderContactLine(cvData)}</p></header>
         ${cvData.summary ? `<section><h2>${sectionTitle('summary', loc)}</h2><p>${escapeHtml(cvData.summary)}</p></section>` : ''}
         ${educationBlock}
         <section><h2>${sectionTitle('experience', loc)}</h2>${renderExperience(cvData)}</section>

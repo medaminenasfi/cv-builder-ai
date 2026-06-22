@@ -25,10 +25,13 @@ export class ExportService {
     const version = await this.cvsService.getLatestVersion(cvId);
     const locale = (cv.locale ?? 'en') as 'en' | 'fr' | 'ar';
 
-    const data = normalizeCVData(
-      draft?.data ?? version?.data ?? {},
-      locale,
-    );
+    const draftPayload =
+      draft && draft.data !== undefined && draft.data !== null
+        ? draft.data
+        : undefined;
+    const rawSource = draftPayload ?? version?.data ?? {};
+
+    const data = normalizeCVData(rawSource, locale);
 
     const templateId = draft?.templateId !== undefined ? draft.templateId : cv.templateId;
 
@@ -102,5 +105,62 @@ export class ExportService {
     );
     const url = this.localStorage.buildPublicUrl(saved.relativePath);
     return { url, signedUrl: url, path: saved.relativePath, storage: 'local' as const };
+  }
+
+  /** Render CV HTML for public share links (no auth). */
+  async renderPublicShare(cvId: string): Promise<{
+    html: string;
+    title: string;
+    locale: string;
+    fullName: string;
+  } | null> {
+    const cv = await this.cvsService.findByIdPublic(cvId);
+    if (!cv) return null;
+    const version = await this.cvsService.getLatestVersion(cvId);
+    const locale = (cv.locale ?? 'en') as 'en' | 'fr' | 'ar';
+    const data = normalizeCVData(version?.data ?? {}, locale);
+
+    let htmlStructure = '';
+    let css = 'body { font-family: Arial, sans-serif; padding: 40px; }';
+    if (cv.templateId) {
+      const template = await this.templatesService.findById(cv.templateId);
+      if (template) {
+        htmlStructure = template.htmlStructure;
+        css = template.css;
+      }
+    }
+
+    const html = renderTemplate(htmlStructure, css, data, {
+      direction: data.meta?.direction ?? 'ltr',
+      locale: cv.locale,
+    });
+
+    return {
+      html,
+      title: cv.title,
+      locale: cv.locale,
+      fullName: data.personal?.fullName ?? cv.title,
+    };
+  }
+
+  async exportPublicPdf(cvId: string): Promise<Buffer> {
+    const rendered = await this.renderPublicShare(cvId);
+    if (!rendered) throw new Error('CV not found');
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(rendered.html, { waitUntil: 'load', timeout: 15000 });
+      const pdf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '12mm', right: '12mm', bottom: '12mm', left: '12mm' },
+      });
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close();
+    }
   }
 }

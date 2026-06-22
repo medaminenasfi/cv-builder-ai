@@ -379,6 +379,7 @@ export class JobsService {
     userId: string,
     jobDescription: string,
     jobTitle?: string,
+    tone: string = 'professional',
   ) {
     const user = await this.usersService.findById(userId);
     if (!user) throw new NotFoundException('User not found');
@@ -390,7 +391,7 @@ export class JobsService {
     try {
       await this.aiUsage.assertWithinQuota(userId, user.plan);
       const raw = await this.openRouter.chat(
-        cvCoverLetterSystemPrompt(locale),
+        `${cvCoverLetterSystemPrompt(locale)} Tone: ${tone}.`,
         cvCoverLetterUserMessage(JSON.stringify(cvData), jobDescription),
       );
       await this.aiUsage.recordCall(userId);

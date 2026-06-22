@@ -15,7 +15,9 @@ import {
 import { ApiError } from '@/lib/api'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { Sparkles, FileText } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Sparkles, FileText, Plus } from 'lucide-react'
+import { CircularScore, MatchStatusBadge } from '@/components/job-match/CircularScore'
 import {
   LineChart,
   Line,
@@ -30,6 +32,7 @@ const GRADIENT = 'linear-gradient(to right, #7c3aed, #a855f7)'
 
 export default function JobMatchContent() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const initialCvId = searchParams.get('cvId')
 
@@ -41,6 +44,7 @@ export default function JobMatchContent() {
   const [result, setResult] = useState<AtsMatchResult | null>(null)
   const [enhanceResult, setEnhanceResult] = useState<JobEnhanceResult | null>(null)
   const [letter, setLetter] = useState('')
+  const [letterTone, setLetterTone] = useState<'professional' | 'creative' | 'technical'>('professional')
   const [scoreHistory, setScoreHistory] = useState<number[]>([])
   const [applying, setApplying] = useState(false)
 
@@ -73,6 +77,7 @@ export default function JobMatchContent() {
       const r = await matchJob(cvId, jd)
       setResult(r)
       setScoreHistory((h) => [...h, r.score])
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Analysis failed')
     } finally {
@@ -116,7 +121,7 @@ export default function JobMatchContent() {
     setLoading(true)
     setError(null)
     try {
-      const r = await coverLetter(cvId, jd)
+      const r = await coverLetter(cvId, jd, undefined, letterTone)
       setLetter(r.content)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Cover letter failed')
@@ -132,7 +137,7 @@ export default function JobMatchContent() {
 
   return (
     <AppShell title="Job Match & ATS">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-4xl mx-auto space-y-6 pb-24 sm:pb-6">
         <div>
           <h1 className="text-xl font-medium text-gray-900">Job Match & ATS</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -173,7 +178,7 @@ export default function JobMatchContent() {
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 sm:static fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-purple-100 p-3 sm:p-0 sm:border-0 sm:bg-transparent">
           <button
             type="button"
             onClick={runMatch}
@@ -201,6 +206,16 @@ export default function JobMatchContent() {
             <FileText size={16} />
             Cover letter
           </button>
+          <select
+            value={letterTone}
+            onChange={(e) => setLetterTone(e.target.value as typeof letterTone)}
+            className="border border-purple-100 rounded-lg px-2 py-2 text-sm"
+            aria-label="Cover letter tone"
+          >
+            <option value="professional">Professional</option>
+            <option value="creative">Creative</option>
+            <option value="technical">Technical</option>
+          </select>
           {cvId && (
             <button
               type="button"
@@ -213,56 +228,73 @@ export default function JobMatchContent() {
         </div>
 
         {result && (
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="bg-white border border-purple-100 rounded-xl p-5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-gray-500 uppercase tracking-wide">ATS Score</p>
-                {result.analysisMode === 'keyword' && (
-                  <span
-                    className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-100"
-                    title="OpenRouter credits low — using local keyword analysis. Add credits for AI scoring."
-                  >
-                    Basic mode
-                  </span>
-                )}
-              </div>
-              <p
-                className="text-4xl font-bold mt-1"
-                style={{
-                  background: GRADIENT,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                }}
-              >
-                {result.score}%
-              </p>
-              {scoreDelta !== null && scoreDelta !== 0 && (
-                <p className={`text-xs mt-1 ${scoreDelta > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                  {scoreDelta > 0 ? '+' : ''}
-                  {scoreDelta} vs previous run
-                </p>
-              )}
-              <div className="mt-4 space-y-2 text-xs text-gray-600">
-                <ScoreBar label="Keywords" value={result.breakdown.keywords} />
-                <ScoreBar label="Format" value={result.breakdown.format} />
-                <ScoreBar label="Sections" value={result.breakdown.sections} />
-                <ScoreBar label="Experience" value={result.breakdown.experience} />
+          <div className="space-y-6">
+            <div className="bg-white border border-purple-100 rounded-2xl p-6 shadow-sm">
+              <div className="flex flex-col sm:flex-row items-center gap-8">
+                <CircularScore score={result.score} label="Overall ATS Score" />
+                <div className="flex-1 w-full space-y-4">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <MatchStatusBadge score={result.score} />
+                    {result.analysisMode === 'keyword' && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-100">
+                        Basic mode — add AI credits for full analysis
+                      </span>
+                    )}
+                    {scoreDelta !== null && scoreDelta !== 0 && (
+                      <span className={`text-xs ${scoreDelta > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {scoreDelta > 0 ? '+' : ''}
+                        {scoreDelta} vs previous
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <ScoreBar label="Keywords" value={result.breakdown.keywords} />
+                    <ScoreBar label="Experience" value={result.breakdown.experience} />
+                    <ScoreBar label="Skills" value={result.breakdown.sections} />
+                    <ScoreBar label="Education" value={Math.min(100, Math.round(result.breakdown.sections * 0.85))} />
+                    <ScoreBar label="Formatting" value={result.breakdown.format} />
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid sm:grid-cols-2 gap-4">
               <KeywordPanel title="Matched keywords" words={result.matchedKeywords} variant="matched" />
-              <KeywordPanel title="Missing keywords" words={result.missingKeywords} variant="missing" />
+              <div>
+                <KeywordPanel title="Missing keywords" words={result.missingKeywords} variant="missing" />
+                {result.missingKeywords.length > 0 && cvId && (
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/cv/${cvId}/edit?keywords=${encodeURIComponent(result.missingKeywords.slice(0, 5).join(','))}`)}
+                    className="mt-2 flex items-center gap-1 text-xs text-purple-700 hover:text-purple-900"
+                  >
+                    <Plus size={14} />
+                    Insert into Resume
+                  </button>
+                )}
+              </div>
             </div>
 
             {result.suggestions?.length > 0 && (
-              <div className="sm:col-span-2 bg-purple-50 border border-purple-100 rounded-xl p-4">
-                <p className="text-xs font-medium text-purple-800 mb-2">Suggestions</p>
-                <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-                  {result.suggestions.map((s) => (
-                    <li key={s}>{s}</li>
-                  ))}
-                </ul>
+              <div className="bg-purple-50 border border-purple-100 rounded-2xl p-5 space-y-4">
+                <p className="text-xs font-semibold text-purple-800 uppercase tracking-wide">
+                  AI Recommendations
+                </p>
+                {Object.entries(groupSuggestions(result.suggestions)).map(([group, items]) =>
+                  items.length > 0 ? (
+                    <div key={group}>
+                      <p className="text-xs font-medium text-purple-700 capitalize mb-1">{group}</p>
+                      <ul className="text-sm text-gray-700 space-y-1">
+                        {items.map((s) => (
+                          <li key={s} className="flex gap-2">
+                            <span className="text-purple-400">•</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null,
+                )}
               </div>
             )}
           </div>
@@ -386,6 +418,25 @@ function KeywordPanel({
       </div>
     </div>
   )
+}
+
+function groupSuggestions(suggestions: string[]): Record<string, string[]> {
+  const groups: Record<string, string[]> = {
+    summary: [],
+    experience: [],
+    skills: [],
+    projects: [],
+    other: [],
+  }
+  for (const s of suggestions) {
+    const lower = s.toLowerCase()
+    if (/summary|profil|profile|intro|opening/.test(lower)) groups.summary.push(s)
+    else if (/experience|job|role|work|employment|bullet/.test(lower)) groups.experience.push(s)
+    else if (/skill|keyword|competenc|technology|tool/.test(lower)) groups.skills.push(s)
+    else if (/project|portfolio/.test(lower)) groups.projects.push(s)
+    else groups.other.push(s)
+  }
+  return groups
 }
 
 function DiffBlock({

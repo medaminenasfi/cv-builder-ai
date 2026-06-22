@@ -98,17 +98,62 @@ export function importCVFile(file: File, title?: string) {
   const form = new FormData();
   form.append('file', file);
   if (title) form.append('title', title);
-  return apiFetch<{ cvId: string; message: string }>('/cvs/import/file', {
+  return apiFetch<ImportFileResult>('/cvs/import/file', {
     method: 'POST',
     body: form,
   });
+}
+
+export function importCVJsonFile(file: File, title?: string) {
+  const form = new FormData();
+  form.append('file', file);
+  if (title) form.append('title', title);
+  return apiFetch<ImportFileResult>('/cvs/import/json/file', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export function importCVJsonIntoExisting(cvId: string, file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<{ cvId: string; message: string; parseMeta?: ParseMeta }>(
+    `/cvs/${cvId}/import/json/file`,
+    { method: 'POST', body: form },
+  );
+}
+
+export interface ParseMetaFields {
+  personal: { fullName: string; email: string; phone: string };
+  summary: string;
+  experience: string;
+  education: string;
+  skills: string;
+  languages: string;
+  technologies: string;
+}
+
+export interface ParseMeta {
+  overall: number;
+  qualityLabel: 'excellent' | 'good' | 'review_recommended' | 'manual_review';
+  fields: ParseMetaFields;
+  warnings: string[];
+  detectedLocale: 'en' | 'fr' | 'ar';
+  usedOcr: boolean;
+  usedAi: boolean;
+}
+
+export interface ImportFileResult {
+  cvId: string;
+  message: string;
+  parseMeta?: ParseMeta;
 }
 
 /** Parse PDF/DOCX and replace content on an existing CV (editor import). */
 export function importCVFileIntoExisting(cvId: string, file: File) {
   const form = new FormData();
   form.append('file', file);
-  return apiFetch<{ cvId: string; message: string }>(`/cvs/${cvId}/import/file`, {
+  return apiFetch<{ cvId: string; message: string; parseMeta?: ParseMeta }>(`/cvs/${cvId}/import/file`, {
     method: 'POST',
     body: form,
   });
@@ -204,10 +249,15 @@ export function applyJobEnhancement(id: string, data: Record<string, unknown>) {
   });
 }
 
-export function coverLetter(id: string, jobDescription: string, jobTitle?: string) {
+export function coverLetter(
+  id: string,
+  jobDescription: string,
+  jobTitle?: string,
+  tone?: string,
+) {
   return apiFetch<{ id: string; content: string }>(`/cvs/${id}/jobs/cover-letter`, {
     method: 'POST',
-    body: JSON.stringify({ jobDescription, jobTitle }),
+    body: JSON.stringify({ jobDescription, jobTitle, tone }),
   });
 }
 

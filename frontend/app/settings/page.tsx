@@ -10,10 +10,16 @@ import { ApiError } from '@/lib/api';
 import type { UserLocale } from '@/lib/types/auth';
 import { useAuth } from '@/providers/AuthProvider';
 import { useCallback, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'account' | 'plan' | 'language'>('account');
+  const [activeTab, setActiveTab] = useState<
+    'account' | 'plan' | 'language' | 'profile' | 'notifications' | 'defaults' | 'theme'
+  >('account');
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const [emailNotifs, setEmailNotifs] = useState(true);
+  const [displayName, setDisplayName] = useState('');
   const [language, setLanguage] = useState<UserLocale>('en');
   const [cvCount, setCvCount] = useState(0);
   const [loadingUsage, setLoadingUsage] = useState(true);
@@ -37,6 +43,12 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (user?.locale) setLanguage(user.locale);
+    const savedName = localStorage.getItem('resumeai-display-name');
+    if (savedName) setDisplayName(savedName);
+    const savedNotifs = localStorage.getItem('resumeai-email-notifs');
+    if (savedNotifs != null) setEmailNotifs(savedNotifs === 'true');
+    const savedTheme = localStorage.getItem('resumeai-theme') as typeof theme | null;
+    if (savedTheme) setTheme(savedTheme);
   }, [user?.locale]);
 
   const loadUsage = useCallback(async () => {
@@ -103,7 +115,7 @@ export default function SettingsPage() {
         window.open(result.url, '_blank', 'noopener,noreferrer');
       }
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Checkout unavailable — ask admin to upgrade your plan');
+      toast.error(e instanceof ApiError ? e.message : 'Checkout unavailable — ask admin to upgrade your plan');
     } finally {
       setUpgrading(false);
     }
@@ -115,8 +127,12 @@ export default function SettingsPage() {
 
   const tabs = [
     { id: 'account' as const, label: 'Account' },
+    { id: 'profile' as const, label: 'Profile' },
     { id: 'plan' as const, label: 'Plan' },
     { id: 'language' as const, label: 'Language' },
+    { id: 'defaults' as const, label: 'Resume defaults' },
+    { id: 'notifications' as const, label: 'Notifications' },
+    { id: 'theme' as const, label: 'Theme' },
   ];
 
   return (
@@ -374,6 +390,79 @@ export default function SettingsPage() {
               >
                 {savingLocale ? 'Saving…' : 'Save Language'}
               </button>
+            </div>
+          )}
+
+          {activeTab === 'profile' && (
+            <div className="bg-white border border-purple-100 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Display name</h3>
+              <input
+                value={displayName}
+                onChange={(e) => {
+                  setDisplayName(e.target.value);
+                  localStorage.setItem('resumeai-display-name', e.target.value);
+                }}
+                placeholder={user?.email ?? 'Your name'}
+                className="w-full border border-purple-100 rounded-lg px-3 py-2 text-sm mb-4"
+              />
+              <p className="text-xs text-gray-400">Shown on shared resumes (coming soon)</p>
+            </div>
+          )}
+
+          {activeTab === 'notifications' && (
+            <div className="bg-white border border-purple-100 rounded-xl p-6 space-y-4">
+              <h3 className="text-sm font-semibold text-gray-900">Email notifications</h3>
+              <label className="flex items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={emailNotifs}
+                  onChange={(e) => {
+                    setEmailNotifs(e.target.checked);
+                    localStorage.setItem('resumeai-email-notifs', String(e.target.checked));
+                  }}
+                  className="rounded border-purple-200"
+                />
+                Product updates and resume tips
+              </label>
+              <p className="text-xs text-gray-400">Preferences saved locally for now</p>
+            </div>
+          )}
+
+          {activeTab === 'defaults' && (
+            <div className="bg-white border border-purple-100 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Default resume language</h3>
+              <p className="text-sm text-gray-600 mb-2">
+                New resumes use your account language: <strong>{user?.locale?.toUpperCase()}</strong>
+              </p>
+              <p className="text-xs text-gray-400">
+                Change under Language tab. Default template can be set when creating from Templates.
+              </p>
+            </div>
+          )}
+
+          {activeTab === 'theme' && (
+            <div className="bg-white border border-purple-100 rounded-xl p-6 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Appearance</h3>
+              {(['light', 'dark', 'system'] as const).map((t) => (
+                <label key={t} className="flex items-center gap-3 p-3 border border-purple-100 rounded-lg cursor-pointer">
+                  <input
+                    type="radio"
+                    name="theme"
+                    checked={theme === t}
+                    onChange={() => {
+                      setTheme(t);
+                      if (t === 'dark') document.documentElement.classList.add('dark');
+                      else if (t === 'light') document.documentElement.classList.remove('dark');
+                      else if (window.matchMedia('(prefers-color-scheme: dark)').matches)
+                        document.documentElement.classList.add('dark');
+                      else document.documentElement.classList.remove('dark');
+                      localStorage.setItem('resumeai-theme', t);
+                    }}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm capitalize">{t}</span>
+                </label>
+              ))}
             </div>
           )}
         </div>

@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { Repository } from 'typeorm';
 import { CVsService } from '../cvs/cvs.service';
+import { ExportService } from '../export/export.service';
 import { ShareLinkEntity } from './entities/share-link.entity';
 
 @Injectable()
 export class SharingService {
   constructor(
     private readonly cvsService: CVsService,
+    private readonly exportService: ExportService,
     @InjectRepository(ShareLinkEntity)
     private readonly shareLinksRepository: Repository<ShareLinkEntity>,
   ) {}
@@ -18,7 +20,7 @@ export class SharingService {
     const token = randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await this.shareLinksRepository.save(
-      this.shareLinksRepository.create({ token, cvId, expiresAt }),
+      this.shareLinksRepository.create({ token, cvId, expiresAt, viewCount: 0 }),
     );
     return { token, url: `/cv/share/${token}`, expiresInDays: 7 };
   }
@@ -28,7 +30,30 @@ export class SharingService {
     if (!link || link.expiresAt.getTime() < Date.now()) {
       return null;
     }
+
+    link.viewCount = (link.viewCount ?? 0) + 1;
+    await this.shareLinksRepository.save(link);
+
+    const rendered = await this.exportService.renderPublicShare(link.cvId);
+    if (!rendered) return null;
+
     const version = await this.cvsService.getLatestVersion(link.cvId);
-    return { cvId: link.cvId, data: version?.data ?? {} };
+    return {
+      cvId: link.cvId,
+      title: rendered.title,
+      locale: rendered.locale,
+      fullName: rendered.fullName,
+      html: rendered.html,
+      data: version?.data ?? {},
+      expiresAt: link.expiresAt.toISOString(),
+    };
+  }
+
+  async exportPdfByToken(token: string): Promise<Buffer | null> {
+    const link = await this.shareLinksRepository.findOne({ where: { token } });
+    if (!link || link.expiresAt.getTime() < Date.now()) {
+      return null;
+    }
+    return this.exportService.exportPublicPdf(link.cvId);
   }
 }

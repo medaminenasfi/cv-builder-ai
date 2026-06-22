@@ -6,6 +6,7 @@ import { CVsModule } from '../cvs/cvs.module';
 import { UsageModule } from '../usage/usage.module';
 import { UsersModule } from '../users/users.module';
 import { CVImportController } from './cv-import.controller';
+import { ParseAnalyticsEntity } from './entities/parse-analytics.entity';
 import { ParseJobEntity } from './entities/parse-job.entity';
 import { PARSE_QUEUE, ParserQueueService } from './parser-queue.service';
 import { ParserController } from './parser.controller';
@@ -18,7 +19,7 @@ import { ParserService } from './parser.service';
     AIModule,
     UsageModule,
     UsersModule,
-    TypeOrmModule.forFeature([ParseJobEntity]),
+    TypeOrmModule.forFeature([ParseJobEntity, ParseAnalyticsEntity]),
     BullModule.registerQueue({ name: PARSE_QUEUE }),
   ],
   controllers: [ParserController, CVImportController],

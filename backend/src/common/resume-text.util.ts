@@ -35,6 +35,7 @@ export interface ContactHints {
   email?: string;
   phone?: string;
   linkedin?: string;
+  github?: string;
   website?: string;
   location?: string;
 }
@@ -57,19 +58,103 @@ export function extractContactHints(text: string): ContactHints {
     hints.linkedin = linkedin.startsWith('http') ? linkedin : `https://${linkedin}`;
   }
 
-  const website = text.match(
-    /(?:https?:\/\/)?(?:www\.)?(?!linkedin)[\w.-]+\.(?:com|io|dev|net|org|tn|fr)[^\s,)>]*/i,
+  const github = text.match(
+    /(?:https?:\/\/)?(?:www\.)?github\.com\/[\w.-]+/i,
   )?.[0];
-  if (website && !website.includes('linkedin')) {
+  if (github) {
+    hints.github = github.startsWith('http') ? github : `https://${github}`;
+  }
+
+  const website = text.match(
+    /(?:https?:\/\/)?(?:www\.)?(?!linkedin|github|gmail|yahoo|hotmail|outlook)[\w.-]+\.(?:com|io|dev|net|org|tn|fr|me)[^\s,)>]*/i,
+  )?.[0];
+  if (
+    website &&
+    !website.includes('linkedin') &&
+    !website.includes('github') &&
+    !/@/.test(website) &&
+    !/gmail|yahoo|hotmail|outlook|live\.com/i.test(website)
+  ) {
     hints.website = website.startsWith('http') ? website : `https://${website}`;
   }
 
-  const location = text.match(
-    /(?:^|\n)([A-ZÀ-Ü][a-zà-ü]+(?:[\s,-]+[A-ZÀ-Ü][a-zà-ü]+){0,3},\s*(?:Tunisia|Tunisie|France|Morocco|Maroc|Algeria|Algérie|[A-ZÀ-Ü][a-zà-ü]+))/m,
-  )?.[1];
-  if (location) hints.location = location.trim();
+  const countryOrRegion =
+    'Tunisia|Tunisie|France|Morocco|Maroc|Algeria|Algérie|Canada|Belgium|Belgique|Switzerland|Suisse|Gabès|Tunis|Sfax|Paris|Lyon|Marseille|Remote|distance';
+  const isLikelyLocation = (value: string): boolean => {
+    if (!value.includes(',')) return false;
+    const [a, b] = value.split(',').map((s) => s.trim());
+    if (!a || !b || a.length < 3 || b.length < 3) return false;
+    if (/@|http|linkedin|github|\+?\d{8,}/i.test(value)) return false;
+    const tech = /^(react|node|vue|angular|python|java|docker|aws|sql|html|css|next|nest|typescript|javascript)$/i;
+    if (tech.test(a) || tech.test(b)) return false;
+    if (new RegExp(countryOrRegion, 'i').test(`${a} ${b}`)) return true;
+    return b.length >= 5 && /^[A-ZÀ-Ü]/.test(b) && a.length >= 4 && /\s/.test(a);
+  };
+
+  for (const line of text.split('\n').slice(0, 12)) {
+    for (const seg of line.split(/[|•·]/).map((s) => s.trim())) {
+      if (isLikelyLocation(seg)) {
+        hints.location = seg;
+        break;
+      }
+    }
+    if (hints.location) break;
+  }
+
+  if (!hints.location) {
+    const cityCountry = text.match(
+      new RegExp(
+        `(?:^|[\\n|,|•·])([A-ZÀ-Ü][a-zà-üéèê' -]+,\\s*(?:${countryOrRegion}|[A-ZÀ-Ü][a-zà-üéèê' -]{4,}))`,
+        'm',
+      ),
+    )?.[1];
+    if (cityCountry && isLikelyLocation(cityCountry.trim())) {
+      hints.location = cityCountry.trim();
+    }
+  }
 
   return hints;
+}
+
+/** Common section boundary headers (EN / FR / AR) for regex lookahead. */
+export const SECTION_BOUNDARY =
+  'expérience|experience|formation|education|langues|languages|compétences|competences|skills|technologies|projets|projects|certifications|الخبرة|الخبرات|التعليم|اللغات|المهارات|التقنيات|الأدوات|المشاريع';
+
+/** Next-section headers when scanning line-by-line (exclude generic "experience" — too broad). */
+const SECTION_LINE_END =
+  'formation|education|études|studies|diplômes|diplomes|langues|languages|compétences|competences|skills|technologies|projets|projects|certifications|التعليم|اللغات|المهارات';
+
+function extractSectionBlockByLines(
+  text: string,
+  headerPattern: RegExp,
+  maxLen = 1200,
+): string | undefined {
+  const headerRe = new RegExp(
+    `^(?:${headerPattern.source})$`,
+    headerPattern.flags.includes('i') ? 'i' : undefined,
+  );
+  const endRe = new RegExp(`^(?:${SECTION_LINE_END})$`, 'i');
+  const lines = text.split('\n');
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    if (headerRe.test(trimmed)) {
+      start = i + 1;
+      break;
+    }
+  }
+  if (start < 0) return undefined;
+
+  const out: string[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed && endRe.test(trimmed)) break;
+    out.push(lines[i]);
+    if (out.join('\n').length > maxLen) break;
+  }
+  const block = out.join('\n').trim();
+  return block.length >= 5 ? block : undefined;
 }
 
 export function extractSectionBlock(
@@ -77,16 +162,23 @@ export function extractSectionBlock(
   headerPattern: RegExp,
   maxLen = 1200,
 ): string | undefined {
+  const headerSource = headerPattern.source.startsWith('(?:')
+    ? headerPattern.source
+    : `(?:${headerPattern.source})`;
   const match = text.match(
     new RegExp(
-      headerPattern.source +
+      headerSource +
         '\\s*[\\n:]\\s*([\\s\\S]{5,' +
         maxLen +
-        '}?)(?=\\n\\s*(?:expérience|experience|formation|education|langues|languages|compétences|competences|skills|technologies|projets|projects|certifications|$))',
+        '}?)(?=\\n\\s*(?:' +
+        SECTION_BOUNDARY +
+        '|$))',
       headerPattern.flags.includes('i') ? 'i' : undefined,
     ),
   );
-  return match?.[1]?.trim();
+  const fromRegex = match?.[1]?.trim();
+  if (fromRegex) return fromRegex;
+  return extractSectionBlockByLines(text, headerPattern, maxLen);
 }
 
 function parseListFromBlock(block: string): string[] {
@@ -96,7 +188,7 @@ function parseListFromBlock(block: string): string[] {
 
 export function extractLanguagesFromText(text: string): Array<{ name: string; level?: string }> {
   const block =
-    extractSectionBlock(text, /langues|languages/i) ??
+    extractSectionBlock(text, /langues|languages|اللغات/i) ??
     extractSectionBlock(text, /language skills/i);
   if (!block) return [];
   return block
@@ -117,32 +209,142 @@ export function extractTechnologiesFromText(text: string): string[] {
   const block =
     extractSectionBlock(
       text,
-      /compétences techniques|competences techniques|technologies|technical skills|stack|outils|tools/i,
-    ) ?? extractSectionBlock(text, /compétences|competences|skills/i);
+      /compétences techniques|competences techniques|technologies|technical skills|stack|outils|tools|التقنيات|الأدوات/i,
+    ) ?? extractSectionBlock(text, /compétences|competences|skills|المهارات/i);
   if (!block) return [];
   return parseListFromBlock(block);
 }
 
 export function extractSkillsFromText(text: string): string[] {
   const block =
-    extractSectionBlock(text, /soft skills|aptitudes|qualités/i) ??
-    extractSectionBlock(text, /compétences|competences|skills/i);
+    extractSectionBlock(text, /soft skills|aptitudes|qualités|الكفاءات/i) ??
+    extractSectionBlock(text, /compétences|competences|skills|المهارات/i);
   if (!block) return [];
   return parseListFromBlock(block);
 }
 
-/** Parse experience blocks from FR/EN CV section headers. */
-export function extractExperienceFromText(
-  text: string,
-): Array<{ company: string; role: string; startDate: string; endDate: string; bullets: string[] }> {
-  const block = extractSectionBlock(
-    text,
-    /expérience professionnelle|expérience|experience|work experience|employment history|parcours professionnel/i,
-    8000,
-  );
-  if (!block) return [];
+/** FR/EN month token for date matching. */
+const MONTH_TOKEN =
+  '(?:jan(?:vier)?|fév(?:rier)?|fev(?:rier)?|mar(?:s)?|avr(?:il)?|mai|juin|juil(?:let)?|ao[uû]t|sep(?:t(?:embre)?)?|oct(?:obre)?|nov(?:embre)?|déc(?:embre)?|dec(?:embre)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|oct(?:ober)?)';
 
-  const chunks = block.split(/\n(?=\d{4}\s*[-–—])/);
+const YEAR_TOKEN = '(?:\\d{1,2}\\/\\d{4}|' + MONTH_TOKEN + '[a-zéû.\\s]*\\d{4}|\\d{4})';
+
+const DATE_RANGE_RE = new RegExp(
+  `(${YEAR_TOKEN})\\s*[-–—]\\s*(Aujourd'hui|Today|Present|Présent|presént|الآن|Now|${YEAR_TOKEN})`,
+  'i',
+);
+
+const LINE_START_DATE_RE = new RegExp(
+  `^(?:(?:${MONTH_TOKEN})[a-zéû.\\s]*)?\\d{4}\\s*[-–—]|^\\d{1,2}\\/\\d{4}\\s*[-–—]`,
+  'im',
+);
+
+function parseDateRange(line: string): { startDate: string; endDate: string } | null {
+  const m = line.match(DATE_RANGE_RE);
+  if (!m) return null;
+  const startDate = m[1].trim();
+  const endRaw = m[2].trim();
+  const endDate = /aujourd|present|présent|today|now|الآن/i.test(endRaw) ? 'present' : endRaw;
+  return { startDate, endDate };
+}
+
+function splitRoleCompany(line: string): { role: string; company: string } {
+  const atMatch = line.match(/^(.+?)\s+(?:chez|at|@)\s+(.+)$/i);
+  if (atMatch) return { role: atMatch[1].trim(), company: atMatch[2].trim() };
+  const dashMatch = line.match(/^(.+?)\s*[—–-]\s*(.+)$/);
+  if (dashMatch) return { role: dashMatch[1].trim(), company: dashMatch[2].trim() };
+  const pipeMatch = line.match(/^(.+?)\s*\|\s*(.+)$/);
+  if (pipeMatch) return { role: pipeMatch[1].trim(), company: pipeMatch[2].trim() };
+  return { role: line.trim(), company: '' };
+}
+
+function parseExperienceParagraph(paragraph: string): {
+  company: string;
+  role: string;
+  startDate: string;
+  endDate: string;
+  bullets: string[];
+} | null {
+  const lines = paragraph.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 1) return null;
+
+  const dateIdx = lines.findIndex((l) => DATE_RANGE_RE.test(l) || LINE_START_DATE_RE.test(l));
+  let startDate = '';
+  let endDate = 'present';
+  let role = '';
+  let company = '';
+  const bullets: string[] = [];
+
+  if (dateIdx >= 0) {
+    const parsed = parseDateRange(lines[dateIdx]);
+    if (parsed) {
+      startDate = parsed.startDate;
+      endDate = parsed.endDate;
+    }
+    const headerLines = lines.slice(0, dateIdx);
+    const bodyLines = lines.slice(dateIdx + 1);
+
+    if (headerLines.length >= 2) {
+      role = headerLines[0];
+      company = headerLines[1];
+    } else if (headerLines.length === 1) {
+      const rc = splitRoleCompany(headerLines[0]);
+      role = rc.role;
+      company = rc.company;
+    } else {
+      const restOnDateLine = lines[dateIdx].replace(DATE_RANGE_RE, '').trim();
+      if (restOnDateLine) {
+        const rc = splitRoleCompany(restOnDateLine);
+        role = rc.role;
+        company = rc.company;
+      }
+    }
+
+    for (const line of bodyLines) {
+      if (/^[-•*▪·]\s*/.test(line) || line.length > 15) {
+        bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
+      }
+    }
+  } else {
+    if (lines.length < 2) return null;
+    role = lines[0];
+    company = lines[1];
+    for (const line of lines.slice(2)) {
+      if (/^[-•*▪·]\s*/.test(line) || line.length > 12) {
+        bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
+      }
+    }
+  }
+
+  if (!role && !company && bullets.length === 0) return null;
+  return {
+    company: company.slice(0, 120),
+    role: role.slice(0, 120),
+    startDate,
+    endDate,
+    bullets: bullets.slice(0, 8),
+  };
+}
+
+function experienceKey(item: {
+  role: string;
+  company: string;
+  startDate: string;
+}): string {
+  return `${item.role}|${item.company}|${item.startDate}`.toLowerCase().trim();
+}
+
+/** Scan date lines and pair with preceding role/company — works for PDF single-line layouts. */
+function extractExperienceByDateScan(
+  block: string,
+): Array<{ company: string; role: string; startDate: string; endDate: string; bullets: string[] }> {
+  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+  const dateIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (DATE_RANGE_RE.test(lines[i])) dateIndices.push(i);
+  }
+  if (dateIndices.length === 0) return [];
+
   const results: Array<{
     company: string;
     role: string;
@@ -151,44 +353,132 @@ export function extractExperienceFromText(
     bullets: string[];
   }> = [];
 
-  for (const chunk of chunks) {
-    const trimmed = chunk.trim();
-    if (trimmed.length < 8) continue;
+  for (let di = 0; di < dateIndices.length; di++) {
+    const dateIdx = dateIndices[di];
+    const nextDateIdx = dateIndices[di + 1] ?? lines.length;
+    const parsed = parseDateRange(lines[dateIdx]);
+    const startDate = parsed?.startDate ?? '';
+    const endDate = parsed?.endDate ?? 'present';
 
-    const headerMatch = trimmed.match(
-      /^(\d{4})\s*[-–—]\s*(Aujourd'hui|Today|Present|Présent|presént|\d{4})\s*(.*)$/i,
-    );
-    if (!headerMatch) continue;
-
-    const [, startDate, endRaw, restLine] = headerMatch;
-    const endDate = /aujourd|present|présent/i.test(endRaw) ? 'present' : endRaw;
-    const rest = restLine.trim();
-
-    let role = rest;
-    let company = '';
-    const atMatch = rest.match(/^(.+?)\s+(?:chez|at|@)\s+(.+)$/i);
-    const dashMatch = rest.match(/^(.+?)\s*[—–-]\s*(.+)$/);
-    if (atMatch) {
-      role = atMatch[1].trim();
-      company = atMatch[2].trim();
-    } else if (dashMatch) {
-      role = dashMatch[1].trim();
-      company = dashMatch[2].trim();
+    const before: string[] = [];
+    const prevDateIdx = di > 0 ? dateIndices[di - 1] : -1;
+    for (let i = dateIdx - 1; i > prevDateIdx && before.length < 2; i--) {
+      const line = lines[i];
+      if (/^[-•*▪·]\s*/.test(line) || DATE_RANGE_RE.test(line)) continue;
+      before.unshift(line);
     }
 
-    const bodyLines = trimmed
-      .split('\n')
-      .slice(1)
-      .map((l) => l.replace(/^[-•*]\s*/, '').trim())
-      .filter(Boolean);
+    let role = '';
+    let company = '';
+    if (before.length >= 2) {
+      role = before[before.length - 2];
+      company = before[before.length - 1];
+    } else if (before.length === 1) {
+      const rc = splitRoleCompany(before[0]);
+      role = rc.role;
+      company = rc.company;
+    }
 
-    results.push({
-      company: company.slice(0, 120),
-      role: role.slice(0, 120),
-      startDate,
-      endDate,
-      bullets: bodyLines.slice(0, 8),
-    });
+    const bullets: string[] = [];
+    for (let i = dateIdx + 1; i < nextDateIdx; i++) {
+      const line = lines[i];
+      if (DATE_RANGE_RE.test(line)) break;
+      if (/^[-•*▪·]\s*/.test(line) || line.length > 12) {
+        bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
+      }
+    }
+
+    if (role || company || bullets.length > 0) {
+      results.push({
+        company: company.slice(0, 120),
+        role: role.slice(0, 120),
+        startDate,
+        endDate,
+        bullets: bullets.slice(0, 8),
+      });
+    }
+  }
+
+  return results;
+}
+
+/** Parse experience blocks from FR/EN CV section headers. */
+export function extractExperienceFromText(
+  text: string,
+): Array<{ company: string; role: string; startDate: string; endDate: string; bullets: string[] }> {
+  const block = extractSectionBlock(
+    text,
+    /expériences?\s*professionnelles?|expérience professionnelle|expérience|experience|work experience|employment history|parcours professionnel|professional experience|historique professionnel|الخبرة|الخبرات|الخبرة المهنية|السيرة المهنية/i,
+    8000,
+  );
+  if (!block) return [];
+
+  const results: Array<{
+    company: string;
+    role: string;
+    startDate: string;
+    endDate: string;
+    bullets: string[];
+  }> = [];
+
+  const pushParsed = (parsed: ReturnType<typeof parseExperienceParagraph>) => {
+    if (!parsed) return;
+    if (!parsed.role && !parsed.company && parsed.bullets.length === 0) return;
+    const key = experienceKey(parsed);
+    if (results.some((r) => experienceKey(r) === key)) return;
+    results.push(parsed);
+  };
+
+  for (const item of extractExperienceByDateScan(block)) {
+    pushParsed(item);
+  }
+
+  const paragraphs = block.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 10);
+  for (const para of paragraphs) {
+    pushParsed(parseExperienceParagraph(para));
+  }
+
+  if (results.length < 1) {
+    const splitRe = new RegExp(
+      `\\n(?=(?:${MONTH_TOKEN})[a-zéû.\\s]*\\d{4}\\s*[-–—]|\\d{4}\\s*[-–—]|\\d{1,2}\\/\\d{4}\\s*[-–—])`,
+      'i',
+    );
+    const chunks = block.split(splitRe);
+    let pendingRole = '';
+    let pendingCompany = '';
+    for (const chunk of chunks) {
+      const parsed = parseExperienceParagraph(chunk);
+      if (!parsed) continue;
+      if (!parsed.role && !parsed.company && (pendingRole || pendingCompany)) {
+        parsed.role = pendingRole;
+        parsed.company = pendingCompany;
+      }
+      if (parsed.role) pendingRole = parsed.role;
+      if (parsed.company) pendingCompany = parsed.company;
+      pushParsed(parsed);
+    }
+  }
+
+  if (results.length === 0) {
+    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+    let buf: string[] = [];
+    const flush = () => {
+      if (buf.length < 2) {
+        buf = [];
+        return;
+      }
+      const parsed = parseExperienceParagraph(buf.join('\n'));
+      if (parsed && (parsed.role || parsed.company)) results.push(parsed);
+      buf = [];
+    };
+    for (const line of lines) {
+      if (LINE_START_DATE_RE.test(line) && buf.length > 0) {
+        flush();
+      }
+      buf.push(line);
+      if (buf.length >= 6) flush();
+    }
+    flush();
   }
 
   return results.slice(0, 12);
@@ -199,12 +489,11 @@ export function extractEducationFromText(
 ): Array<{ institution: string; degree: string; startDate: string; endDate: string }> {
   const block = extractSectionBlock(
     text,
-    /formation|education|études|studies|diplômes|diplomes/i,
+    /formation|education|études|studies|diplômes|diplomes|academic background|التعليم|المؤهلات|الدراسة/i,
     4000,
   );
   if (!block) return [];
 
-  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
   const results: Array<{
     institution: string;
     degree: string;
@@ -212,30 +501,79 @@ export function extractEducationFromText(
     endDate: string;
   }> = [];
 
-  for (const line of lines) {
-    const dateMatch = line.match(
-      /^(\d{4})\s*[-–—]\s*(\d{4}|Aujourd'hui|Present|Présent)\s*(.+)$/i,
-    );
-    if (dateMatch) {
-      const [, startDate, endRaw, rest] = dateMatch;
-      const endDate = /aujourd|present|présent/i.test(endRaw) ? endRaw : endRaw;
-      const dash = rest.match(/^(.+?)\s*[—–-]\s*(.+)$/);
-      results.push({
-        degree: dash ? dash[1].trim() : rest.trim(),
-        institution: dash ? dash[2].trim() : '',
-        startDate,
-        endDate,
-      });
+  const pushEdu = (entry: {
+    institution: string;
+    degree: string;
+    startDate: string;
+    endDate: string;
+  }) => {
+    if (!entry.degree && !entry.institution) return;
+    const key = `${entry.degree}|${entry.institution}`;
+    if (results.some((r) => `${r.degree}|${r.institution}` === key)) return;
+    results.push(entry);
+  };
+
+  const paragraphs = block.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 6);
+  for (const para of paragraphs) {
+    const lines = para.split('\n').map((l) => l.trim()).filter(Boolean);
+    const dateIdx = lines.findIndex((l) => DATE_RANGE_RE.test(l) || LINE_START_DATE_RE.test(l));
+    if (dateIdx >= 0) {
+      const parsed = parseDateRange(lines[dateIdx]);
+      const startDate = parsed?.startDate ?? '';
+      const endDate = parsed?.endDate ?? '';
+      const header = lines.slice(0, dateIdx);
+      let degree = '';
+      let institution = '';
+      if (header.length >= 2) {
+        degree = header[0];
+        institution = header[1];
+      } else if (header.length === 1) {
+        const dash = header[0].match(/^(.+?)\s*[—–-]\s*(.+)$/);
+        if (dash) {
+          degree = dash[1].trim();
+          institution = dash[2].trim();
+        } else {
+          degree = header[0];
+        }
+      }
+      pushEdu({ degree, institution, startDate, endDate });
       continue;
     }
 
-    if (line.length >= 6 && line.length <= 120) {
-      results.push({
-        degree: line,
-        institution: '',
-        startDate: '',
-        endDate: '',
-      });
+    for (const line of lines) {
+      const dateMatch = line.match(
+        new RegExp(`^(${YEAR_TOKEN})\\s*[-–—]\\s*(${YEAR_TOKEN}|Aujourd'hui|Today|Present|Présent)`, 'i'),
+      );
+      if (dateMatch) {
+        const startDate = dateMatch[1].trim();
+        const endRaw = dateMatch[2].trim();
+        const endDate = /aujourd|present|présent|today/i.test(endRaw) ? 'present' : endRaw;
+        const rest = line.replace(dateMatch[0], '').trim();
+        const dash = rest.match(/^(.+?)\s*[—–-]\s*(.+)$/);
+        pushEdu({
+          degree: dash ? dash[1].trim() : rest.trim(),
+          institution: dash ? dash[2].trim() : '',
+          startDate,
+          endDate,
+        });
+        continue;
+      }
+
+      const yearOnly = line.match(/^(\d{4})\s*[-–—]\s*(\d{4})\s+(.+)$/);
+      if (yearOnly) {
+        const dash = yearOnly[3].match(/^(.+?)\s*[—–-]\s*(.+)$/);
+        pushEdu({
+          degree: dash ? dash[1].trim() : yearOnly[3].trim(),
+          institution: dash ? dash[2].trim() : '',
+          startDate: yearOnly[1],
+          endDate: yearOnly[2],
+        });
+        continue;
+      }
+
+      if (line.length >= 6 && line.length <= 120) {
+        pushEdu({ degree: line, institution: '', startDate: '', endDate: '' });
+      }
     }
   }
 
@@ -245,9 +583,10 @@ export function extractEducationFromText(
 export function guessFullName(text: string): string | undefined {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   for (const line of lines.slice(0, 8)) {
-    if (line.length < 4 || line.length > 55) continue;
+    if (line.length < 3 || line.length > 60) continue;
     if (/@|https?:|linkedin|phone|tel|\+?\d{8,}/i.test(line)) continue;
-    if (/^(cv|resume|curriculum|profil|profile)$/i.test(line)) continue;
+    if (/^(cv|resume|curriculum|profil|profile|سيرة|السيرة)$/i.test(line)) continue;
+    if (/^[\u0600-\u06FF\s]{4,55}$/.test(line)) return line;
     if (/^[A-ZÀ-Ü][a-zà-ü]+(\s+[A-ZÀ-Ü][a-zà-ü'-]+){1,4}$/.test(line)) {
       return line;
     }
@@ -260,6 +599,106 @@ export function guessJobTitle(text: string): string | undefined {
     /(?:^|\n)(D[ée]veloppeur[^.\n]{0,60}|Full[- ]Stack[^.\n]{0,40}|Software Engineer[^.\n]{0,40}|Ing[ée]nieur[^.\n]{0,60})/im,
   );
   return titleMatch?.[1]?.trim();
+}
+
+/** Extract profile / professional summary from FR/EN CV text. */
+export function extractSummaryFromText(text: string): string | undefined {
+  const block = extractSectionBlock(
+    text,
+    /résumé\s*professionnel|profil\s*professionnel|profil|profile|summary|professional summary|about(?:\s+me)?|à propos|a propos|présentation|presentation|objectif(?:\s+professionnel)?|who am i|career objective|الملخص|نبذة/i,
+    2800,
+  );
+  if (block) {
+    const clean = block
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !/^[-•*▪·]\s*$/.test(l))
+      .join(' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    if (clean.length >= 20) return clean.slice(0, 1500);
+  }
+
+  const sectionStart = text.search(
+    new RegExp(`\\n\\s*(?:${SECTION_BOUNDARY})\\s*(?:\\n|:)`, 'i'),
+  );
+  const head = sectionStart > 40 ? text.slice(0, sectionStart) : text.slice(0, 1800);
+  const headLines = head.split('\n').map((l) => l.trim()).filter(Boolean);
+  const prose: string[] = [];
+
+  for (const line of headLines.slice(1, 14)) {
+    if (/@|linkedin|github|https?:|www\.|\+?\d[\d\s().-]{8,}/i.test(line)) continue;
+    if (line.length < 35) continue;
+    if (
+      /^(expérience|experience|formation|education|compétences|competences|skills|langues|languages|certifications|projets|projects)\b/i.test(
+        line,
+      )
+    ) {
+      break;
+    }
+    if (/^[A-ZÀ-Ü][a-zà-ü]+(\s+[A-ZÀ-Ü][a-zà-ü'-]+){1,4}$/.test(line)) continue;
+    prose.push(line);
+    if (prose.join(' ').length > 100) break;
+  }
+
+  const fallback = prose.join(' ').replace(/\s{2,}/g, ' ').trim();
+  return fallback.length >= 35 ? fallback.slice(0, 1500) : undefined;
+}
+
+function mergeExperienceEntries(
+  existing: CVData['experience'],
+  extracted: Array<{
+    company: string;
+    role: string;
+    startDate: string;
+    endDate: string;
+    bullets: string[];
+  }>,
+): CVData['experience'] {
+  const out = [...existing];
+  const keys = new Set(out.map((e) => experienceKey(e)));
+  for (const exp of extracted) {
+    if (!exp.role && !exp.company) continue;
+    const key = experienceKey(exp);
+    if (keys.has(key)) continue;
+    out.push({
+      id: newCvId(),
+      company: exp.company,
+      role: exp.role,
+      startDate: exp.startDate,
+      endDate: exp.endDate,
+      bullets: exp.bullets,
+    });
+    keys.add(key);
+  }
+  return out;
+}
+
+function mergeEducationEntries(
+  existing: CVData['education'],
+  extracted: Array<{
+    institution: string;
+    degree: string;
+    startDate: string;
+    endDate: string;
+  }>,
+): CVData['education'] {
+  const out = [...existing];
+  const keys = new Set(out.map((e) => `${e.degree}|${e.institution}`.toLowerCase()));
+  for (const edu of extracted) {
+    if (!edu.degree && !edu.institution) continue;
+    const key = `${edu.degree}|${edu.institution}`.toLowerCase();
+    if (keys.has(key)) continue;
+    out.push({
+      id: newCvId(),
+      institution: edu.institution,
+      degree: edu.degree,
+      startDate: edu.startDate,
+      endDate: edu.endDate,
+    });
+    keys.add(key);
+  }
+  return out;
 }
 
 /** Keep start (contact) + end (skills/education) when text is long. */
@@ -279,6 +718,7 @@ export function enrichCVFromRawText(data: CVData, rawText: string): CVData {
   if (!personal.phone?.trim() && hints.phone) personal.phone = hints.phone;
   if (!personal.linkedin?.trim() && hints.linkedin) personal.linkedin = hints.linkedin;
   if (!personal.website?.trim() && hints.website) personal.website = hints.website;
+  if (!personal.website?.trim() && hints.github) personal.website = hints.github;
   if (!personal.location?.trim() && hints.location) personal.location = hints.location;
   if (!personal.fullName?.trim()) {
     const name = guessFullName(rawText);
@@ -287,6 +727,12 @@ export function enrichCVFromRawText(data: CVData, rawText: string): CVData {
   if (!personal.title?.trim()) {
     const title = guessJobTitle(rawText);
     if (title) personal.title = title;
+  }
+
+  let summary = data.summary?.trim() ?? '';
+  if (summary.length < 20) {
+    const extractedSummary = extractSummaryFromText(rawText);
+    if (extractedSummary) summary = extractedSummary;
   }
 
   let skills = [...data.skills];
@@ -324,32 +770,9 @@ export function enrichCVFromRawText(data: CVData, rawText: string): CVData {
     }
   }
 
-  let experience = [...data.experience];
-  if (experience.length < 1) {
-    for (const exp of extractExperienceFromText(rawText)) {
-      experience.push({
-        id: newCvId(),
-        company: exp.company,
-        role: exp.role,
-        startDate: exp.startDate,
-        endDate: exp.endDate,
-        bullets: exp.bullets,
-      });
-    }
-  }
+  let experience = mergeExperienceEntries(data.experience, extractExperienceFromText(rawText));
 
-  let education = [...data.education];
-  if (education.length < 1) {
-    for (const edu of extractEducationFromText(rawText)) {
-      education.push({
-        id: newCvId(),
-        institution: edu.institution,
-        degree: edu.degree,
-        startDate: edu.startDate,
-        endDate: edu.endDate,
-      });
-    }
-  }
+  let education = mergeEducationEntries(data.education, extractEducationFromText(rawText));
 
-  return { ...data, personal, skills, languages, technologies, experience, education };
+  return { ...data, personal, summary, skills, languages, technologies, experience, education };
 }

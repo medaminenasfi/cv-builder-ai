@@ -2,49 +2,58 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { previewCV } from '@/lib/cvs-api';
-import type { CVData } from '@/lib/types/cv-data';
-import Link from 'next/link';
-import { Maximize2 } from 'lucide-react';
+import { Eye, Maximize2 } from 'lucide-react';
 
 interface CVLivePreviewProps {
   cvId: string;
-  data: CVData;
+  data: Record<string, unknown>;
+  /** Bumps when editor data changes — used only to trigger refresh */
+  dataRevision: string;
   templateId: string | null;
   templateName?: string;
 }
 
-export function CVLivePreview({ cvId, data, templateId, templateName }: CVLivePreviewProps) {
+export function CVLivePreview({
+  cvId,
+  data,
+  dataRevision,
+  templateId,
+  templateName,
+}: CVLivePreviewProps) {
   const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
+  const [renderKey, setRenderKey] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!dataRevision || dataRevision === 'undefined') return;
+
+    const requestId = ++requestIdRef.current;
     const timer = setTimeout(() => {
       setLoading(true);
       setError(null);
       previewCV(cvId, { data, templateId })
         .then((r) => {
-          if (!cancelled) setHtml(r.html);
+          if (requestId !== requestIdRef.current) return;
+          setHtml(r.html);
+          setRenderKey((k) => k + 1);
         })
         .catch((e) => {
-          if (!cancelled) {
-            setError(e instanceof Error ? e.message : 'Preview failed');
-            setHtml(null);
-          }
+          if (requestId !== requestIdRef.current) return;
+          setError(e instanceof Error ? e.message : 'Preview failed');
+          setHtml(null);
         })
         .finally(() => {
-          if (!cancelled) setLoading(false);
+          if (requestId !== requestIdRef.current) return;
+          setLoading(false);
         });
-    }, 350);
+    }, 300);
 
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [cvId, data, templateId]);
+    return () => clearTimeout(timer);
+  }, [cvId, data, dataRevision, templateId]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -63,28 +72,29 @@ export function CVLivePreview({ cvId, data, templateId, templateName }: CVLivePr
   }, []);
 
   return (
-    <div className="bg-white border border-purple-100 rounded-xl overflow-hidden flex flex-col sticky top-6 h-[calc(100vh-6rem)]">
-      <div className="px-4 py-3 border-b border-purple-100 bg-purple-50 flex items-center justify-between gap-2">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-purple-600">
-            Live Preview
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {templateName ?? 'Default'} · A4 ({210}×{297} mm)
-          </p>
+    <div className="bg-white border border-purple-100 rounded-xl overflow-hidden flex flex-col h-[calc(100vh-5.5rem)] min-h-[480px]">
+      <div className="px-4 py-3 border-b border-purple-100 bg-white flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Eye size={16} className="text-purple-500" />
+          <div>
+            <p className="text-sm font-medium text-gray-900">Live Preview</p>
+            <p className="text-[11px] text-gray-500">
+              {templateName ?? 'Default template'} · 1 page
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {loading && (
             <span className="text-[10px] text-purple-400 animate-pulse">Updating…</span>
           )}
-          <Link
+          <a
             href={`/cv/${cvId}/preview`}
             className="flex items-center gap-1 text-[10px] text-purple-600 hover:underline"
             title="Full A4 preview & PDF export"
           >
             <Maximize2 size={12} />
             Full preview
-          </Link>
+          </a>
         </div>
       </div>
 
@@ -114,6 +124,7 @@ export function CVLivePreview({ cvId, data, templateId, templateName }: CVLivePr
             }}
           >
             <iframe
+              key={renderKey}
               title="CV template preview"
               srcDoc={html}
               className="w-full border-0 bg-white"

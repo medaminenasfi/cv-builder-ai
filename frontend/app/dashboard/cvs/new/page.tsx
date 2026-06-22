@@ -1,107 +1,185 @@
 'use client'
 
 import { AppShell } from '@/components/layout/AppShell'
-import { createCV, importCVFile } from '@/lib/cvs-api'
+import { createCV, importCVFile, importCVJsonFile } from '@/lib/cvs-api'
+import { copyChatGptPrompt, downloadCvJsonExample } from '@/lib/cv-json-import'
 import { ApiError } from '@/lib/api'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
-import { FileUp, LayoutTemplate, PenLine, Link2 } from 'lucide-react'
+import { FileUp, PenLine, Link2, ArrowRight, FileJson, Copy } from 'lucide-react'
+
+const GRADIENT = 'linear-gradient(135deg, #7c3aed 0%, #a855f7 100%)'
 
 export default function NewCVPage() {
   const router = useRouter()
   const fileRef = useRef<HTMLInputElement>(null)
+  const jsonRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+  const [importStep, setImportStep] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [promptCopied, setPromptCopied] = useState(false)
 
-  const handleBlank = async () => {
-    setCreating(true)
-    setError(null)
-    try {
-      const cv = await createCV({ title: 'Untitled Resume' })
-      router.push(`/cv/${cv.id}/edit`)
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Failed to create CV')
-      setCreating(false)
-    }
-  }
+  const handleManual = () => router.push('/templates')
+
+  const handleImportClick = () => fileRef.current?.click()
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return
     setImporting(true)
+    setImportStep('Uploading file…')
     setError(null)
     try {
+      setImportStep('Extracting text…')
+      await new Promise((r) => setTimeout(r, 300))
+      setImportStep('AI parsing sections…')
       const result = await importCVFile(file)
-      router.push(`/cv/${result.cvId}/review`)
+      if (result.parseMeta) {
+        sessionStorage.setItem(`parseMeta-${result.cvId}`, JSON.stringify(result.parseMeta))
+      }
+      router.push(`/cv/${result.cvId}/edit?parse=1`)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Import failed')
       setImporting(false)
+      setImportStep(null)
       if (fileRef.current) fileRef.current.value = ''
     }
   }
 
-  return (
-    <AppShell title="Create CV">
-      <div className="max-w-3xl mx-auto">
-        <h1 className="text-xl font-medium text-gray-900">How would you like to start?</h1>
-        <p className="text-sm text-gray-500 mt-1 mb-8">
-          Choose a template, build from scratch, or import an existing resume.
-        </p>
+  const handleJsonFile = async (file: File | undefined) => {
+    if (!file) return
+    setImporting(true)
+    setImportStep('Reading JSON…')
+    setError(null)
+    try {
+      const result = await importCVJsonFile(file)
+      if (result.parseMeta) {
+        sessionStorage.setItem(`parseMeta-${result.cvId}`, JSON.stringify(result.parseMeta))
+      }
+      router.push(`/cv/${result.cvId}/edit?parse=1`)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'JSON import failed')
+      setImporting(false)
+      setImportStep(null)
+      if (jsonRef.current) jsonRef.current.value = ''
+    }
+  }
 
-        <p className="text-xs text-gray-400 mb-6 -mt-4">
-          To import: click <strong>Import PDF or Word</strong> below, select your .pdf or .docx file,
-          review parsed fields, then open the editor.
-        </p>
+  const handleCopyPrompt = async () => {
+    await copyChatGptPrompt()
+    setPromptCopied(true)
+    setTimeout(() => setPromptCopied(false), 2000)
+  }
+
+  return (
+    <AppShell title="Create Resume">
+      <div className="max-w-4xl mx-auto">
+        <div className="text-center mb-10">
+          <h1 className="text-2xl font-bold text-gray-900">How would you like to start?</h1>
+          <p className="text-sm text-gray-500 mt-2 max-w-lg mx-auto">
+            Build a new resume from professional templates, or upload your existing PDF or Word file
+            and let AI extract everything automatically.
+          </p>
+        </div>
 
         {error && (
-          <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          <p className="mb-6 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
             {error}
           </p>
         )}
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <button
-            type="button"
-            onClick={() => router.push('/templates')}
-            className="text-left bg-white border border-purple-100 rounded-xl p-6 hover:border-purple-300 transition-colors"
-          >
-            <LayoutTemplate className="text-purple-500 mb-3" size={28} />
-            <h2 className="font-medium text-gray-900">Choose a template</h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Pick a design, then fill in your details.
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="bg-white border border-purple-100 rounded-2xl p-8 shadow-sm hover:shadow-lg hover:border-purple-300 transition-all duration-200 flex flex-col">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 text-white"
+              style={{ background: GRADIENT }}
+            >
+              <PenLine size={28} />
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900">Manual Builder</h2>
+            <p className="text-sm text-gray-500 mt-2 flex-1">
+              Create your resume from scratch using professional templates. Choose a design, fill in
+              your details, and customize every section.
             </p>
-          </button>
+            <button
+              type="button"
+              onClick={handleManual}
+              disabled={creating}
+              className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-medium hover:opacity-90 disabled:opacity-50"
+              style={{ background: GRADIENT }}
+            >
+              Start Building
+              <ArrowRight size={18} />
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={handleBlank}
-            disabled={creating}
-            className="text-left bg-white border border-purple-100 rounded-xl p-6 hover:border-purple-300 transition-colors disabled:opacity-50"
-          >
-            <PenLine className="text-purple-500 mb-3" size={28} />
-            <h2 className="font-medium text-gray-900">Start from scratch</h2>
-            <p className="text-xs text-gray-500 mt-1">
-              {creating ? 'Creating…' : 'Blank resume — add sections manually.'}
+          <div className="bg-white border border-purple-100 rounded-2xl p-8 shadow-sm hover:shadow-lg hover:border-purple-300 transition-all duration-200 flex flex-col">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5 bg-purple-50 text-purple-600">
+              <FileUp size={28} />
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900">Import Existing Resume</h2>
+            <p className="text-sm text-gray-500 mt-2 flex-1">
+              Upload PDF or Word and let AI extract your experience, education, skills, and contact
+              info. Review parsed data before editing.
             </p>
-          </button>
+            <button
+              type="button"
+              onClick={handleImportClick}
+              disabled={importing}
+              className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-purple-200 text-purple-700 font-medium hover:bg-purple-50 disabled:opacity-50"
+            >
+              {importing ? (importStep ?? 'Parsing with AI…') : 'Import Resume'}
+              {!importing && <ArrowRight size={18} />}
+            </button>
+          </div>
+        </div>
 
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={importing}
-            className="text-left bg-white border border-purple-100 rounded-xl p-6 hover:border-purple-300 transition-colors disabled:opacity-50"
-          >
-            <FileUp className="text-purple-500 mb-3" size={28} />
-            <h2 className="font-medium text-gray-900">Import PDF or Word</h2>
-            <p className="text-xs text-gray-500 mt-1">
-              {importing ? 'Parsing with AI…' : 'Upload .pdf or .docx — review before editing.'}
-            </p>
-          </button>
+        <div className="mt-8 bg-purple-50 border border-purple-100 rounded-2xl p-6">
+          <div className="flex items-start gap-3">
+            <FileJson className="text-purple-600 shrink-0 mt-0.5" size={22} />
+            <div className="flex-1 space-y-3">
+              <div>
+                <h3 className="font-semibold text-purple-900">Import via JSON (no AI credits)</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Upload your CV PDF to ChatGPT, paste the prompt below, save the JSON file, then import it here.
+                  JSON carries <strong>content only</strong> (name, jobs, skills) — pick a <strong>template</strong> in the app for fonts, colors, and layout.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-purple-200 rounded-lg bg-white hover:bg-purple-50"
+                >
+                  <Copy size={14} />
+                  {promptCopied ? 'Prompt copied!' : 'Copy ChatGPT prompt'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadCvJsonExample()}
+                  className="px-3 py-2 text-sm border border-purple-200 rounded-lg bg-white hover:bg-purple-50"
+                >
+                  JSON example
+                </button>
+                <button
+                  type="button"
+                  onClick={() => jsonRef.current?.click()}
+                  disabled={importing}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg text-white font-medium disabled:opacity-50"
+                  style={{ background: GRADIENT }}
+                >
+                  <FileJson size={14} />
+                  {importing && importStep?.includes('JSON') ? importStep : 'Import JSON file'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
-          <div className="text-left bg-white border border-dashed border-purple-100 rounded-xl p-6 opacity-60">
-            <Link2 className="text-purple-300 mb-3" size={28} />
-            <h2 className="font-medium text-gray-700">LinkedIn import</h2>
-            <p className="text-xs text-gray-400 mt-1">Coming soon</p>
+        <div className="mt-8 text-center">
+          <div className="inline-flex items-center gap-2 text-sm text-gray-400 border border-dashed border-purple-100 rounded-xl px-4 py-3">
+            <Link2 size={16} />
+            LinkedIn import — Coming soon
           </div>
         </div>
 
@@ -111,6 +189,16 @@ export default function NewCVPage() {
           accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
           onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+        <input
+          ref={jsonRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(e) => {
+            setImportStep('Importing JSON…')
+            handleJsonFile(e.target.files?.[0])
+          }}
         />
       </div>
     </AppShell>

@@ -1,18 +1,24 @@
 'use client'
 
+/** Admin templates: HTML/CSS/JSON only — no PDF import (use built-in templates or Dashboard for CV JSON). */
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Eye, Pencil, Trash2, X, Upload, Info, Sparkles } from 'lucide-react'
+import { Plus, Eye, Pencil, Trash2, X, Upload, Info, FolderOpen } from 'lucide-react'
 import {
   createTemplate,
   deleteTemplate,
-  importTemplateFromFile,
+  importTemplateFromHtmlCss,
+  importTemplateFromJson,
+  importTemplateJsonText,
   listAllTemplates,
+  listBundledTemplates,
+  loadBundledTemplate,
   previewTemplate,
+  TEMPLATE_JSON_EXAMPLE,
   toggleTemplate,
   updateTemplate,
   type Template,
+  type TemplateImportResult,
 } from '@/lib/templates-api'
-import { isPdfFile, pdfFileToPng } from '@/lib/pdf-to-image'
 
 const EMPTY_FORM = {
   name: '',
@@ -34,6 +40,7 @@ function readFileAsText(file: File): Promise<string> {
 
 export default function AdminTemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([])
+  const [bundled, setBundled] = useState<{ slug: string; name: string; supportsRtl: boolean }[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
@@ -42,12 +49,20 @@ export default function AdminTemplatesPage() {
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importNote, setImportNote] = useState<string | null>(null)
+  const [pasteJson, setPasteJson] = useState('')
+  const [showPasteJson, setShowPasteJson] = useState(false)
   const htmlInputRef = useRef<HTMLInputElement>(null)
   const cssInputRef = useRef<HTMLInputElement>(null)
-  const pdfInputRef = useRef<HTMLInputElement>(null)
+  const jsonInputRef = useRef<HTMLInputElement>(null)
+  const packageHtmlRef = useRef<HTMLInputElement>(null)
+  const packageCssRef = useRef<HTMLInputElement>(null)
+  const pendingPackageHtml = useRef<File | null>(null)
 
   const load = () => listAllTemplates().then(setTemplates).catch(console.error)
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    listBundledTemplates().then(setBundled).catch(() => setBundled([]))
+  }, [])
 
   const openCreate = () => {
     setEditingId(null)
@@ -77,40 +92,102 @@ export default function AdminTemplatesPage() {
     else setForm((f) => ({ ...f, css: text }))
   }
 
-  const handlePdfImport = async (file: File | undefined) => {
+  const applyImportResult = (result: TemplateImportResult) => {
+    setEditingId(null)
+    setForm({
+      name: result.name,
+      slug: result.slug ?? '',
+      htmlStructure: result.htmlStructure,
+      css: result.css,
+      thumbnailUrl: '',
+      supportsRtl: result.supportsRtl,
+    })
+    setShowForm(true)
+    setImportNote(result.notes ?? 'Template loaded — review and click Create Template')
+  }
+
+  const handleLoadBundled = async (slug: string) => {
+    setImporting(true)
+    setError(null)
+    setImportNote(null)
+    try {
+      const result = await loadBundledTemplate(slug)
+      applyImportResult(result)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load template')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handlePasteJsonImport = async () => {
+    if (!pasteJson.trim()) return
+    setImporting(true)
+    setError(null)
+    setImportNote(null)
+    try {
+      const result = await importTemplateJsonText(pasteJson)
+      applyImportResult(result)
+      setShowPasteJson(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'JSON import failed')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleJsonImport = async (file: File | undefined) => {
     if (!file) return
     setImporting(true)
     setError(null)
     setImportNote(null)
     try {
-      let uploadFile = file
-      if (isPdfFile(file)) {
-        setImportNote('Converting PDF to image for AI analysis…')
-        uploadFile = await pdfFileToPng(file)
-      }
-      const result = await importTemplateFromFile(uploadFile)
-      setEditingId(null)
-      setForm({
-        name: result.name,
-        slug: result.slug ?? '',
-        htmlStructure: result.htmlStructure,
-        css: result.css,
-        thumbnailUrl: '',
-        supportsRtl: result.supportsRtl,
-      })
-      setShowForm(true)
-      const pct = Math.round(result.confidence.overall * 100)
-      setImportNote(
-        result.confidence.overall < 0.7
-          ? `Imported with ${pct}% confidence — please review HTML/CSS before publishing.${result.notes ? ` ${result.notes}` : ''}`
-          : `Imported with ${pct}% confidence.${result.notes ? ` ${result.notes}` : ''}`,
-      )
+      const result = await importTemplateFromJson(file)
+      applyImportResult(result)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Import failed')
+      setError(e instanceof Error ? e.message : 'JSON import failed')
     } finally {
       setImporting(false)
-      if (pdfInputRef.current) pdfInputRef.current.value = ''
+      if (jsonInputRef.current) jsonInputRef.current.value = ''
     }
+  }
+
+  const handlePackageHtml = (file: File | undefined) => {
+    if (!file) return
+    pendingPackageHtml.current = file
+    if (packageCssRef.current) packageCssRef.current.value = ''
+    packageCssRef.current?.click()
+  }
+
+  const handlePackageCss = async (cssFile: File | undefined) => {
+    const htmlFile = pendingPackageHtml.current
+    pendingPackageHtml.current = null
+    if (!htmlFile || !cssFile) return
+    setImporting(true)
+    setError(null)
+    setImportNote(null)
+    try {
+      const result = await importTemplateFromHtmlCss(htmlFile, cssFile)
+      applyImportResult(result)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'HTML/CSS import failed')
+    } finally {
+      setImporting(false)
+      if (packageHtmlRef.current) packageHtmlRef.current.value = ''
+      if (packageCssRef.current) packageCssRef.current.value = ''
+    }
+  }
+
+  const downloadJsonExample = () => {
+    const blob = new Blob([JSON.stringify(TEMPLATE_JSON_EXAMPLE, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'template-example.json'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const handleSave = async () => {
@@ -160,25 +237,64 @@ export default function AdminTemplatesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Template Management</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Add CV templates — users see only <strong>Active</strong> ones on /templates
+            Templates = HTML + CSS design only. CV PDF/JSON goes on{' '}
+            <a href="/dashboard/cvs/new" className="text-purple-600 underline">Create Resume</a>.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <input
-            ref={pdfInputRef}
+            ref={jsonInputRef}
             type="file"
-            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
+            accept=".json,application/json"
             className="hidden"
-            onChange={(e) => handlePdfImport(e.target.files?.[0])}
+            onChange={(e) => handleJsonImport(e.target.files?.[0])}
+          />
+          <input
+            ref={packageHtmlRef}
+            type="file"
+            accept=".html,.htm,text/html"
+            className="hidden"
+            onChange={(e) => handlePackageHtml(e.target.files?.[0])}
+          />
+          <input
+            ref={packageCssRef}
+            type="file"
+            accept=".css,text/css"
+            className="hidden"
+            onChange={(e) => handlePackageCss(e.target.files?.[0])}
           />
           <button
             type="button"
-            onClick={() => pdfInputRef.current?.click()}
+            onClick={() => packageHtmlRef.current?.click()}
             disabled={importing}
             className="flex items-center gap-2 px-4 py-2 border border-purple-200 text-purple-700 rounded-lg text-sm hover:bg-purple-50 disabled:opacity-50"
           >
-            <Sparkles size={16} />
-            {importing ? 'Analyzing…' : 'Import from PDF/Image'}
+            <Upload size={16} />
+            Import HTML+CSS
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowPasteJson((v) => !v)}
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 border border-purple-300 bg-purple-50 text-purple-800 rounded-lg text-sm hover:bg-purple-100 disabled:opacity-50"
+          >
+            Paste ChatGPT JSON
+          </button>
+          <button
+            type="button"
+            onClick={() => jsonInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            <Upload size={16} />
+            Import Template JSON
+          </button>
+          <button
+            type="button"
+            onClick={downloadJsonExample}
+            className="px-3 py-2 text-xs text-purple-600 hover:underline"
+          >
+            JSON example
           </button>
           <button
             onClick={openCreate}
@@ -189,24 +305,87 @@ export default function AdminTemplatesPage() {
         </div>
       </div>
 
-      {/* Help box */}
+      {showPasteJson && (
+        <div className="bg-white border border-purple-200 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-medium text-purple-900">Paste JSON from ChatGPT</p>
+          <p className="text-xs text-gray-500">
+            Copy the whole message (even if invalid JSON). Broken quotes inside HTML are fixed automatically.
+          </p>
+          <textarea
+            value={pasteJson}
+            onChange={(e) => setPasteJson(e.target.value)}
+            rows={8}
+            placeholder='Paste {"name":"...","htmlStructure":"...","css":"..."} here'
+            className="w-full border rounded-lg px-3 py-2 text-xs font-mono"
+          />
+          <button
+            type="button"
+            onClick={handlePasteJsonImport}
+            disabled={importing || !pasteJson.trim()}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm disabled:opacity-50"
+          >
+            {importing ? 'Importing…' : 'Import pasted JSON'}
+          </button>
+        </div>
+      )}
+
+      {bundled.length > 0 && (
+        <div className="bg-white border border-purple-100 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <FolderOpen size={18} className="text-purple-600" />
+            <p className="font-medium text-sm">Built-in templates (HTML + CSS — no PDF, no AI)</p>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Click to load ready-made design into the editor, then save. Same files as{' '}
+            <code className="bg-gray-50 px-1 rounded">templates/modern/</code> in the project.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {bundled.map((t) => (
+              <button
+                key={t.slug}
+                type="button"
+                disabled={importing}
+                onClick={() => handleLoadBundled(t.slug)}
+                className="px-3 py-1.5 text-sm rounded-lg border border-purple-200 text-purple-800 hover:bg-purple-50 disabled:opacity-50"
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-950">
+        <p className="font-semibold">PDF is not a template</p>
+        <p className="text-xs mt-1">
+          A CV PDF cannot become an exact HTML template automatically. Use built-in templates above,
+          or import <strong>HTML + CSS</strong> files. Your CV content (PDF → ChatGPT → JSON) belongs on{' '}
+          <a href="/dashboard/cvs/new" className="underline font-medium">Dashboard → Import JSON</a>.
+        </p>
+      </div>
+
       <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 text-sm">
         <div className="flex gap-2 items-start">
           <Info size={18} className="text-purple-600 shrink-0 mt-0.5" />
           <div className="space-y-2 text-gray-700">
-            <p className="font-medium text-purple-900">How to add your own templates</p>
+            <p className="font-medium text-purple-900">How it works</p>
             <ol className="list-decimal list-inside space-y-1 text-xs">
-              <li><strong>Option A — AI import:</strong> Click &quot;Import from PDF/Image&quot; — PDFs are converted to an image in your browser (no OpenRouter file fee), then Claude generates HTML+CSS with placeholders</li>
-              <li><strong>Option B — Admin UI:</strong> Click &quot;Add Template&quot;, upload your .html and .css files</li>
-              <li><strong>Option C — Folder + seed:</strong> Put files in <code className="bg-white px-1 rounded">templates/my-name/template.html</code> + <code className="bg-white px-1 rounded">template.css</code>, then run <code className="bg-white px-1 rounded">npm run seed:templates</code> in backend</li>
-              <li><strong>PDF design:</strong> Export pages as PNG → put in <code className="bg-white px-1 rounded">frontend/public/template-thumbs/</code> → set Thumbnail URL (e.g. <code className="bg-white px-1 rounded">/template-thumbs/modern.png</code>). Rebuild HTML/CSS from your PDF layout for live CV data.</li>
+              <li><strong>Template</strong> (here): HTML + CSS with {'{{fullName}}'}, {'{{experience}}'}, etc.</li>
+              <li><strong>CV data</strong> (Dashboard): JSON with your jobs, skills, profile</li>
+              <li>User picks template + fills data → export PDF looks like the template</li>
             </ol>
             <p className="text-xs text-gray-600">
-              Use placeholders: <code>{'{{fullName}}'}</code>, <code>{'{{contactLine}}'}</code>, <code>{'{{summary}}'}</code>, <code>{'{{education}}'}</code>, <code>{'{{experience}}'}</code>, <code>{'{{skills}}'}</code>
+              Placeholders: <code>{'{{fullName}}'}</code>, <code>{'{{contactLine}}'}</code>,{' '}
+              <code>{'{{summary}}'}</code>, <code>{'{{education}}'}</code>, <code>{'{{experience}}'}</code>,{' '}
+              <code>{'{{skills}}'}</code>
             </p>
           </div>
         </div>
       </div>
+
+      {error && (
+        <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">{error}</p>
+      )}
 
       <div className="bg-white rounded-xl border overflow-hidden">
         <table className="w-full text-sm">
@@ -223,7 +402,7 @@ export default function AdminTemplatesPage() {
             {templates.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  No templates yet — run seed or add one
+                  No templates — click a built-in template above or run npm run seed:templates
                 </td>
               </tr>
             ) : (
@@ -281,7 +460,6 @@ export default function AdminTemplatesPage() {
         </table>
       </div>
 
-      {/* Add/Edit form drawer */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowForm(false)} />
@@ -292,7 +470,7 @@ export default function AdminTemplatesPage() {
             </div>
 
             {importNote && (
-              <p className="mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{importNote}</p>
+              <p className="mb-3 text-sm text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{importNote}</p>
             )}
             {error && (
               <p className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
@@ -376,9 +554,7 @@ export default function AdminTemplatesPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase">
-                  Thumbnail URL (optional — PNG/JPG from PDF screenshot)
-                </label>
+                <label className="text-xs font-semibold text-gray-500 uppercase">Thumbnail URL (optional)</label>
                 <input
                   placeholder="/template-thumbs/my-design.png"
                   value={form.thumbnailUrl}
@@ -408,7 +584,6 @@ export default function AdminTemplatesPage() {
         </div>
       )}
 
-      {/* Preview modal */}
       {previewHtml && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setPreviewHtml(null)} />

@@ -36,6 +36,10 @@ export class CVsService {
     return cv;
   }
 
+  async findByIdPublic(id: string): Promise<CVEntity | null> {
+    return this.cvsRepository.findOne({ where: { id } });
+  }
+
   async findByIdWithData(
     id: string,
     userId: string,

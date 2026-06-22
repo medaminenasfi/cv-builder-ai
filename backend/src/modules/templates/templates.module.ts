@@ -6,12 +6,13 @@ import {
   TemplatesController,
 } from './templates.controller';
 import { TemplateImportService } from './template-import.service';
+import { BuiltinTemplatesService } from './builtin-templates.service';
 import { TemplatesService } from './templates.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([TemplateEntity])],
   controllers: [TemplatesController, AdminTemplatesController],
-  providers: [TemplatesService, TemplateImportService],
+  providers: [TemplatesService, TemplateImportService, BuiltinTemplatesService],
   exports: [TemplatesService, TypeOrmModule],
 })
 export class TemplatesModule {}

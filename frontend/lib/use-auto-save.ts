@@ -14,7 +14,7 @@ interface UseAutoSaveOptions {
 export function useAutoSave({
   enabled,
   snapshot,
-  debounceMs = 30000,
+  debounceMs = 5000,
   onSave,
 }: UseAutoSaveOptions) {
   const [status, setStatus] = useState<AutoSaveStatus>('saved');
@@ -67,5 +67,5 @@ export function useAutoSave({
     setStatus('saved');
   }, [snapshot]);
 
-  return { status, markSaved, saveNow: runSave };
+  return { status, markSaved, saveNow: runSave, flushOnBlur: runSave };
 }

@@ -53,10 +53,16 @@ export class JobsController {
   @Post(':id/jobs/cover-letter')
   coverLetter(
     @Param('id') id: string,
-    @Body() body: { jobDescription: string; jobTitle?: string },
+    @Body() body: { jobDescription: string; jobTitle?: string; tone?: string },
     @CurrentUser() user: UserEntity,
   ) {
-    return this.jobsService.coverLetter(id, user.id, body.jobDescription, body.jobTitle);
+    return this.jobsService.coverLetter(
+      id,
+      user.id,
+      body.jobDescription,
+      body.jobTitle,
+      body.tone,
+    );
   }
 
   @Get(':id/jobs/matches')

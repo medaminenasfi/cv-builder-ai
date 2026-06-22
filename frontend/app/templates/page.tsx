@@ -2,12 +2,14 @@
 
 import { AppShell } from '@/components/layout/AppShell'
 import { TemplatePreviewFrame } from '@/components/templates/TemplatePreviewFrame'
-import { listActiveTemplates, type Template } from '@/lib/templates-api'
+import { type Template } from '@/lib/templates-api'
 import { createCV } from '@/lib/cvs-api'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { ApiError } from '@/lib/api'
 import { useAuth } from '@/providers/AuthProvider'
+import { useTemplates } from '@/lib/hooks/dashboard-queries'
+import { toast } from 'sonner'
 import { X } from 'lucide-react'
 
 const PRIMARY_GRADIENT = 'linear-gradient(to right, #7c3aed, #a855f7)'
@@ -15,25 +17,17 @@ const PRIMARY_GRADIENT = 'linear-gradient(to right, #7c3aed, #a855f7)'
 export default function TemplatesPage() {
   const router = useRouter()
   const { hasAdminSession } = useAuth()
-  const [templates, setTemplates] = useState<Template[]>([])
+  const { data: templates = [], isLoading: loading, error: queryError } = useTemplates()
+  const error = queryError instanceof ApiError ? queryError.message : queryError ? 'Failed to load templates' : null
   const [active, setActive] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile' | 'a4'>('desktop')
   const [search, setSearch] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    listActiveTemplates()
-      .then((t) => {
-        setTemplates(t)
-        if (t[0]) setActive(t[0].id)
-      })
-      .catch((e) => {
-        setError(e instanceof ApiError ? e.message : 'Failed to load templates')
-      })
-      .finally(() => setLoading(false))
-  }, [])
+    if (templates[0] && !active) setActive(templates[0].id)
+  }, [templates, active])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -52,7 +46,7 @@ export default function TemplatesPage() {
       const cv = await createCV({ title: `${target.name} Resume`, templateId: target.id })
       router.push(`/cv/${cv.id}/edit`)
     } catch (e) {
-      alert(e instanceof ApiError ? e.message : 'Failed to create CV')
+      toast.error(e instanceof ApiError ? e.message : 'Failed to create CV')
     } finally {
       setCreating(false)
     }
@@ -101,7 +95,9 @@ export default function TemplatesPage() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div className="lg:grid lg:grid-cols-[1fr_min(380px,35%)] lg:gap-8 lg:items-start">
+          <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map((t) => {
               const isSelected = active === t.id
               return (
@@ -151,12 +147,80 @@ export default function TemplatesPage() {
                     </button>
                   </div>
 
-                  <div className="px-3 py-2 border-t border-purple-50">
+                  <div className="px-3 py-2 border-t border-purple-50 space-y-2">
                     <p className="text-xs font-medium text-gray-800 truncate">{t.name}</p>
+                    <div className="flex flex-wrap gap-1">
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                        ATS Friendly
+                      </span>
+                      {t.supportsRtl && (
+                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">
+                          RTL
+                        </span>
+                      )}
+                      {t.slug === 'modern' && (
+                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">
+                          Popular
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPreviewId(t.id)
+                        }}
+                        className="flex-1 text-[10px] py-1 rounded-md border border-purple-100 text-purple-700 hover:bg-purple-50"
+                      >
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          useTemplate(t)
+                        }}
+                        disabled={creating}
+                        className="flex-1 text-[10px] py-1 rounded-md text-white disabled:opacity-50"
+                        style={{ background: PRIMARY_GRADIENT }}
+                      >
+                        Use
+                      </button>
+                    </div>
                   </div>
                 </div>
               )
             })}
+          </div>
+          {selected && (
+            <div className="mt-6 flex justify-center lg:justify-start">
+              <button
+                type="button"
+                onClick={() => useTemplate(selected)}
+                disabled={creating}
+                className="w-full sm:w-auto px-8 py-3 text-white font-medium rounded-xl disabled:opacity-50 shadow-lg hover:opacity-90"
+                style={{ background: PRIMARY_GRADIENT }}
+              >
+                {creating ? 'Creating…' : `Use ${selected.name} Template`}
+              </button>
+            </div>
+          )}
+          </div>
+
+          {selected && (
+            <aside className="hidden lg:block sticky top-6">
+              <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-3">Live preview</p>
+              <div className="border border-purple-100 rounded-xl overflow-hidden shadow-sm bg-white" style={{ height: 'min(75vh, 640px)' }}>
+                <TemplatePreviewFrame
+                  templateId={selected.id}
+                  templateName={selected.name}
+                  thumbnailUrl={selected.thumbnailUrl}
+                  rtl={selected.supportsRtl}
+                />
+              </div>
+            </aside>
+          )}
           </div>
         )}
       </div>
@@ -185,7 +249,32 @@ export default function TemplatesPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 min-h-0">
-              <div className="h-[min(70vh,560px)]">
+              <div className="flex gap-2 mb-3">
+                {(['desktop', 'mobile', 'a4'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setPreviewMode(mode)}
+                    className={`text-xs px-3 py-1 rounded-lg capitalize ${
+                      previewMode === mode
+                        ? 'bg-purple-100 text-purple-800 font-medium'
+                        : 'text-gray-500 hover:bg-purple-50'
+                    }`}
+                  >
+                    {mode === 'a4' ? 'A4' : mode}
+                  </button>
+                ))}
+              </div>
+              <div
+                className={`mx-auto transition-all ${
+                  previewMode === 'mobile'
+                    ? 'max-w-[375px] border border-purple-100 rounded-xl overflow-hidden'
+                    : previewMode === 'a4'
+                      ? 'max-w-[210mm] border border-purple-100 shadow-lg'
+                      : 'w-full'
+                }`}
+                style={{ height: previewMode === 'a4' ? '297mm' : 'min(70vh,560px)' }}
+              >
                 <TemplatePreviewFrame
                   templateId={previewTemplate.id}
                   templateName={previewTemplate.name}

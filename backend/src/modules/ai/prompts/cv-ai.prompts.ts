@@ -23,7 +23,8 @@ Rules:
 - Put each bullet under a job into experience[].bullets
 - Copy dates and company names exactly; use "" if missing, never invent employers
 - Generate short unique ids for array items
-- Supports English and French resumes`;
+- Supports English, French, and Arabic resumes
+- Arabic CVs: الخبرة→experience, التعليم→education, اللغات→languages, المهارات→skills, التقنيات→technologies`;
 
 export function cvParseUserMessage(rawText: string): string {
   return `Extract complete CV JSON from this resume text. Include ALL experience entries, ALL education, ALL skills, contact info, and summary.

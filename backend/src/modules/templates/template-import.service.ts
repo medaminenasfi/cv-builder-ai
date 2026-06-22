@@ -10,8 +10,25 @@ import { ConfigService } from '@nestjs/config';
 import {
   TEMPLATE_IMPORT_SYSTEM_PROMPT,
   TEMPLATE_IMPORT_USER_MESSAGE,
+  TEMPLATE_IMPORT_HTML_SYSTEM_PROMPT,
+  TEMPLATE_IMPORT_HTML_USER_MESSAGE,
+  TEMPLATE_IMPORT_CSS_SYSTEM_PROMPT,
+  templateImportCssUserMessage,
 } from './template-import.prompts';
 import type { TemplateConfig } from './template-import.types';
+import { compressImageForVision } from '../../common/image-compress.util';
+import {
+  isCvResumeJson,
+  isJsonTemplateFile,
+  parseTemplateJsonText,
+  parseTemplateResponse,
+  parseTemplateCssPhase,
+  parseTemplateHtmlPhase,
+  validateTemplateConfig,
+} from './template-import.parse.util';
+
+const CV_JSON_ON_TEMPLATE_HINT =
+  'This JSON is CV resume data (personal_info, experience), not a template design. Import it at Dashboard → Create Resume → Import JSON. For templates use htmlStructure + css — try Import HTML+CSS or download Template JSON example.';
 
 const ALLOWED_MIMES = new Set<string>([
   'application/pdf',
@@ -21,9 +38,12 @@ const ALLOWED_MIMES = new Set<string>([
 ]);
 
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
-/** Lower default keeps free/low-balance OpenRouter accounts under credit limits. */
-const DEFAULT_OPENROUTER_MAX_TOKENS = 768;
+const DEFAULT_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
+const TEMPLATE_VISION_MODEL = 'google/gemini-2.5-flash-lite';
+const TEMPLATE_IMPORT_DEFAULT_TOKENS = 2048;
+const TEMPLATE_IMPORT_OUTPUT_CAP = 4096;
+const TEMPLATE_IMPORT_MIN_OUTPUT_TOKENS = 512;
+const TEMPLATE_PHASE_MAX_TOKENS = 1200;
 const DEFAULT_ANTHROPIC_MAX_TOKENS = 4096;
 
 const OPENROUTER_MODEL_MAP: Record<string, string> = {
@@ -69,23 +89,68 @@ function resolveMaxTokens(
   configService: ConfigService,
   apiKey: string,
 ): number {
-  const configured = configService.get<string>('OPENROUTER_MAX_TOKENS');
-  const parsed = configured ? Number.parseInt(configured, 10) : NaN;
-  if (Number.isFinite(parsed) && parsed > 0) {
-    return parsed;
+  const templateConfigured = configService.get<string>(
+    'OPENROUTER_TEMPLATE_MAX_TOKENS',
+  );
+  const templateParsed = templateConfigured
+    ? Number.parseInt(templateConfigured, 10)
+    : NaN;
+
+  if (Number.isFinite(templateParsed) && templateParsed > 0) {
+    if (isOpenRouterKey(apiKey)) {
+      return Math.min(templateParsed, TEMPLATE_IMPORT_OUTPUT_CAP);
+    }
+    return templateParsed;
   }
 
-  return isOpenRouterKey(apiKey)
-    ? DEFAULT_OPENROUTER_MAX_TOKENS
-    : DEFAULT_ANTHROPIC_MAX_TOKENS;
+  if (isOpenRouterKey(apiKey)) {
+    return TEMPLATE_IMPORT_DEFAULT_TOKENS;
+  }
+
+  return DEFAULT_ANTHROPIC_MAX_TOKENS;
+}
+
+function normalizeUploadMime(mimeType: string, buffer: Buffer): string {
+  const normalized = mimeType === 'image/jpg' ? 'image/jpeg' : mimeType;
+  if (ALLOWED_MIMES.has(normalized)) return normalized;
+
+  if (buffer.length >= 4) {
+    if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image/jpeg';
+    if (buffer[0] === 0x89 && buffer[1] === 0x50) return 'image/png';
+    if (buffer.subarray(0, 4).toString() === '%PDF') {
+      return 'application/pdf';
+    }
+  }
+
+  return normalized;
+}
+
+function resolveTemplateVisionModel(
+  configService: ConfigService,
+  apiKey: string,
+): string {
+  const configured =
+    configService.get<string>('OPENROUTER_TEMPLATE_MODEL') ??
+    configService.get<string>('OPENROUTER_MODEL');
+
+  if (isOpenRouterKey(apiKey)) {
+    if (configured?.includes('/')) return configured;
+    return TEMPLATE_VISION_MODEL;
+  }
+
+  return resolveModel(configService, apiKey);
+}
+
+function isPromptTokenLimitMessage(message: string): boolean {
+  return /prompt tokens limit exceeded/i.test(message);
 }
 
 function parseAffordableMaxTokens(message: string): number | undefined {
   const match = message.match(/can only afford (\d+)/i);
   if (!match) return undefined;
   const afford = Number.parseInt(match[1], 10);
-  if (!Number.isFinite(afford) || afford < 256) return undefined;
-  return Math.max(256, afford - 64);
+  if (!Number.isFinite(afford) || afford < 64) return undefined;
+  return Math.max(64, afford - 8);
 }
 
 function resolveModel(configService: ConfigService, apiKey: string): string {
@@ -128,11 +193,27 @@ export class TemplateImportService {
 
   constructor(private readonly configService: ConfigService) {}
 
+  async importFromJsonText(text: string): Promise<TemplateConfig> {
+    return parseTemplateJsonText(text);
+  }
+
+  async importFromJsonPayload(payload: unknown): Promise<TemplateConfig> {
+    if (isCvResumeJson(payload)) {
+      throw new BadRequestException(CV_JSON_ON_TEMPLATE_HINT);
+    }
+    return validateTemplateConfig(payload);
+  }
+
   async extractTemplateConfigFromFile(
     fileBuffer: Buffer,
     mimeType: string,
+    filename?: string,
   ): Promise<TemplateConfig> {
-    const normalizedMime = mimeType === 'image/jpg' ? 'image/jpeg' : mimeType;
+    if (isJsonTemplateFile(mimeType, filename)) {
+      return parseTemplateJsonText(fileBuffer.toString('utf8'));
+    }
+
+    const normalizedMime = normalizeUploadMime(mimeType, fileBuffer);
 
     if (!ALLOWED_MIMES.has(normalizedMime)) {
       throw new BadRequestException(
@@ -147,29 +228,31 @@ export class TemplateImportService {
       );
     }
 
-    const model = resolveModel(this.configService, apiKey);
+    const model = resolveTemplateVisionModel(this.configService, apiKey);
     const maxTokens = resolveMaxTokens(this.configService, apiKey);
     const referer =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
 
-    const raw = isOpenRouterKey(apiKey)
-      ? await this.callOpenRouter(
-          apiKey,
-          model,
-          referer,
-          fileBuffer,
-          normalizedMime,
-          maxTokens,
-        )
-      : await this.callAnthropic(
-          apiKey,
-          model,
-          fileBuffer,
-          normalizedMime,
-          maxTokens,
-        );
+    if (isOpenRouterKey(apiKey)) {
+      return await this.callOpenRouter(
+        apiKey,
+        model,
+        referer,
+        fileBuffer,
+        normalizedMime,
+        maxTokens,
+      );
+    }
 
-    const config = this.parseTemplateConfig(raw);
+    const raw = await this.callAnthropic(
+      apiKey,
+      model,
+      fileBuffer,
+      normalizedMime,
+      maxTokens,
+    );
+
+    const config = parseTemplateResponse(raw);
 
     if (config.confidence.overall < 0.7) {
       this.logger.warn(
@@ -180,6 +263,24 @@ export class TemplateImportService {
     return config;
   }
 
+  importTemplatePackage(input: {
+    name: string;
+    htmlStructure: string;
+    css: string;
+    slug?: string;
+    supportsRtl?: boolean;
+  }): TemplateConfig {
+    return validateTemplateConfig({
+      name: input.name,
+      slug: input.slug,
+      htmlStructure: input.htmlStructure,
+      css: input.css,
+      supportsRtl: input.supportsRtl ?? false,
+      confidence: { overall: 1, layout: 1, styling: 1 },
+      notes: 'Imported from HTML/CSS package',
+    });
+  }
+
   private async callOpenRouter(
     apiKey: string,
     model: string,
@@ -187,26 +288,137 @@ export class TemplateImportService {
     fileBuffer: Buffer,
     mimeType: string,
     maxTokens: number,
-  ): Promise<string> {
+  ): Promise<TemplateConfig> {
     if (mimeType === 'application/pdf') {
       throw new BadRequestException(
-        'OpenRouter PDF uploads require paid file credits. The admin UI converts PDFs to PNG automatically — refresh the page and try again, or upload a PNG/JPEG screenshot.',
+        'OpenRouter PDF uploads require paid file credits. The admin UI converts PDFs to JPEG automatically — refresh and try again, or upload PNG/JPEG.',
       );
     }
 
-    const base64 = fileBuffer.toString('base64');
+    const widths = [880, 620, 460];
+    let lastError = 'AI template extraction failed';
+    const phaseTokens = Math.min(
+      maxTokens,
+      TEMPLATE_PHASE_MAX_TOKENS,
+      Math.max(TEMPLATE_IMPORT_MIN_OUTPUT_TOKENS, Math.floor(maxTokens / 2)),
+    );
 
-    return this.openRouterChat(apiKey, model, referer, maxTokens, {
+    for (let pass = 0; pass < widths.length; pass++) {
+      const { buffer, mimeType: outMime } = await compressImageForVision(
+        fileBuffer,
+        widths[pass],
+      );
+      const base64 = buffer.toString('base64');
+      const imagePart = {
+        type: 'image_url' as const,
+        image_url: { url: `data:${outMime};base64,${base64}` },
+      };
+
+      try {
+        const htmlRaw = await this.openRouterChat(
+          apiKey,
+          model,
+          referer,
+          phaseTokens,
+          {
+            systemPrompt: TEMPLATE_IMPORT_HTML_SYSTEM_PROMPT,
+            userContent: [
+              { type: 'text', text: TEMPLATE_IMPORT_HTML_USER_MESSAGE },
+              imagePart,
+            ],
+          },
+        );
+        const htmlPhase = parseTemplateHtmlPhase(htmlRaw);
+
+        const cssRaw = await this.openRouterChat(
+          apiKey,
+          model,
+          referer,
+          phaseTokens,
+          {
+            systemPrompt: TEMPLATE_IMPORT_CSS_SYSTEM_PROMPT,
+            userContent: [
+              {
+                type: 'text',
+                text: templateImportCssUserMessage(htmlPhase.htmlStructure),
+              },
+              imagePart,
+            ],
+          },
+        );
+        const cssPhase = parseTemplateCssPhase(cssRaw);
+
+        return validateTemplateConfig({
+          name: htmlPhase.name,
+          slug: undefined,
+          htmlStructure: htmlPhase.htmlStructure,
+          css: cssPhase.css,
+          supportsRtl: htmlPhase.supportsRtl,
+          confidence: {
+            overall: 0.75,
+            layout: 0.75,
+            styling: 0.75,
+          },
+          notes: 'Two-phase AI import (HTML + CSS)',
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        lastError = msg;
+        if (isPromptTokenLimitMessage(msg) && pass < widths.length - 1) {
+          this.logger.warn(
+            `Prompt too large for credits — retrying template import with ${widths[pass + 1]}px image`,
+          );
+          continue;
+        }
+
+        if (pass === widths.length - 1) {
+          this.logger.warn(
+            `Two-phase import failed, trying single-pass fallback: ${msg.slice(0, 120)}`,
+          );
+          try {
+            return await this.callOpenRouterSinglePass(
+              apiKey,
+              model,
+              referer,
+              fileBuffer,
+              maxTokens,
+            );
+          } catch (fallbackErr) {
+            throw fallbackErr;
+          }
+        }
+        throw err;
+      }
+    }
+
+    throw new BadGatewayException(lastError);
+  }
+
+  private async callOpenRouterSinglePass(
+    apiKey: string,
+    model: string,
+    referer: string,
+    fileBuffer: Buffer,
+    maxTokens: number,
+  ): Promise<TemplateConfig> {
+    const { buffer, mimeType: outMime } = await compressImageForVision(
+      fileBuffer,
+      620,
+    );
+    const base64 = buffer.toString('base64');
+
+    const raw = await this.openRouterChat(apiKey, model, referer, maxTokens, {
+      systemPrompt: TEMPLATE_IMPORT_SYSTEM_PROMPT,
       userContent: [
         { type: 'text', text: TEMPLATE_IMPORT_USER_MESSAGE },
         {
           type: 'image_url',
-          image_url: {
-            url: `data:${mimeType};base64,${base64}`,
-          },
+          image_url: { url: `data:${outMime};base64,${base64}` },
         },
       ],
     });
+
+    return parseTemplateResponse(raw);
   }
 
   private async openRouterChat(
@@ -215,13 +427,14 @@ export class TemplateImportService {
     referer: string,
     maxTokens: number,
     options: {
+      systemPrompt: string;
       userContent: unknown[];
       plugins?: unknown[];
     },
   ): Promise<string> {
     let attemptMaxTokens = maxTokens;
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const response = await fetch(OPENROUTER_CHAT_URL, {
         method: 'POST',
         headers: {
@@ -233,8 +446,9 @@ export class TemplateImportService {
         body: JSON.stringify({
           model,
           max_tokens: attemptMaxTokens,
+          response_format: { type: 'json_object' },
           messages: [
-            { role: 'system', content: TEMPLATE_IMPORT_SYSTEM_PROMPT },
+            { role: 'system', content: options.systemPrompt },
             { role: 'user', content: options.userContent },
           ],
           ...(options.plugins ? { plugins: options.plugins } : {}),
@@ -268,7 +482,11 @@ export class TemplateImportService {
 
       if (response.status === 402 && attempt === 0) {
         const affordable = parseAffordableMaxTokens(message);
-        if (affordable && affordable < attemptMaxTokens) {
+        if (
+          affordable &&
+          affordable < attemptMaxTokens &&
+          affordable >= TEMPLATE_IMPORT_MIN_OUTPUT_TOKENS
+        ) {
           this.logger.warn(
             `Retrying OpenRouter with max_tokens=${affordable} (credit limit)`,
           );
@@ -283,9 +501,20 @@ export class TemplateImportService {
         );
       }
 
-      if (response.status === 402) {
+      if (response.status === 404 && /no endpoints found/i.test(message)) {
         throw new BadGatewayException(
-          `OpenRouter credits insufficient: ${message} Add credits at openrouter.ai/settings/credits, or set OPENROUTER_MAX_TOKENS to a lower value in backend/.env.`,
+          `OpenRouter model "${model}" is unavailable. Set OPENROUTER_MODEL and OPENROUTER_TEMPLATE_MODEL to a current model in backend/.env (e.g. google/gemini-2.5-flash-lite). See openrouter.ai/models`,
+        );
+      }
+
+      if (response.status === 402) {
+        if (isPromptTokenLimitMessage(message)) {
+          throw new BadGatewayException(
+            `OpenRouter prompt too large for your credits (${message}). Upload a smaller screenshot, import a .json package, or add credits at openrouter.ai/settings/credits.`,
+          );
+        }
+        throw new BadGatewayException(
+          `OpenRouter credits insufficient: ${message} Add credits at openrouter.ai/settings/credits, import a .json template package, or use Add Template with .html + .css files.`,
         );
       }
 
@@ -364,63 +593,5 @@ export class TemplateImportService {
         `AI template extraction failed: ${message}`,
       );
     }
-  }
-
-  private parseTemplateConfig(raw: string): TemplateConfig {
-    const cleaned = raw
-      .replace(/```json\s*/gi, '')
-      .replace(/```\s*/g, '')
-      .trim();
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch {
-      throw new BadRequestException(
-        'AI returned invalid JSON. Try a clearer PDF or add the template manually.',
-      );
-    }
-
-    return this.validateTemplateConfig(parsed);
-  }
-
-  private validateTemplateConfig(data: unknown): TemplateConfig {
-    if (!data || typeof data !== 'object') {
-      throw new BadRequestException('Invalid template config from AI');
-    }
-
-    const o = data as Record<string, unknown>;
-    const confidence = o.confidence as Record<string, unknown> | undefined;
-
-    if (
-      typeof o.name !== 'string' ||
-      typeof o.htmlStructure !== 'string' ||
-      typeof o.css !== 'string' ||
-      !o.htmlStructure.trim() ||
-      !o.css.trim()
-    ) {
-      throw new BadRequestException(
-        'AI response missing required name, htmlStructure, or css',
-      );
-    }
-
-    return {
-      name: o.name.trim(),
-      slug: typeof o.slug === 'string' ? o.slug.trim() : undefined,
-      htmlStructure: o.htmlStructure,
-      css: o.css,
-      supportsRtl: Boolean(o.supportsRtl),
-      confidence: {
-        overall: this.clamp01(confidence?.overall, 0.5),
-        layout: this.clamp01(confidence?.layout, 0.5),
-        styling: this.clamp01(confidence?.styling, 0.5),
-      },
-      notes: typeof o.notes === 'string' ? o.notes : undefined,
-    };
-  }
-
-  private clamp01(value: unknown, fallback: number): number {
-    const n = typeof value === 'number' ? value : fallback;
-    return Math.max(0, Math.min(1, n));
   }
 }

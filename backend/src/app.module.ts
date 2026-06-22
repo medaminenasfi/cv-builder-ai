@@ -17,6 +17,7 @@ import { ParserModule } from './modules/parser/parser.module';
 import { SharingModule } from './modules/sharing/sharing.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { UsageModule } from './modules/usage/usage.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -64,6 +65,7 @@ import { UsersModule } from './modules/users/users.module';
     BillingModule,
     StorageModule,
     UsageModule,
+    DashboardModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -41,8 +41,39 @@ const STEPS = [
   'Template',
 ] as const
 
+import type { ParseMeta } from '@/lib/cvs-api'
+import { computeResumeHealth } from '@/lib/resume-health'
+
 const inputCls =
   'w-full border border-purple-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200'
+
+function ConfidenceBadge({ level }: { level: 'high' | 'medium' | 'low' }) {
+  const cls =
+    level === 'high'
+      ? 'bg-emerald-50 text-emerald-700'
+      : level === 'medium'
+        ? 'bg-amber-50 text-amber-700'
+        : 'bg-red-50 text-red-600'
+  return (
+    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${cls}`}>
+      AI {level}
+    </span>
+  )
+}
+
+const QUALITY_LABELS: Record<string, string> = {
+  excellent: 'Excellent parse (95–100)',
+  good: 'Good parse (80–94)',
+  review_recommended: 'Review recommended (60–79)',
+  manual_review: 'Manual review required (<60)',
+}
+
+function qualityFromScore(score: number): string {
+  if (score >= 95) return QUALITY_LABELS.excellent
+  if (score >= 80) return QUALITY_LABELS.good
+  if (score >= 60) return QUALITY_LABELS.review_recommended
+  return QUALITY_LABELS.manual_review
+}
 
 export default function CVReviewPage() {
   const params = useParams()
@@ -62,6 +93,7 @@ export default function CVReviewPage() {
   const [technologiesText, setTechnologiesText] = useState('')
   const [certificationsText, setCertificationsText] = useState('')
   const [projectsText, setProjectsText] = useState('')
+  const [parseMeta, setParseMeta] = useState<ParseMeta | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -79,6 +111,8 @@ export default function CVReviewPage() {
       setTechnologiesText(technologiesToInput(normalized.technologies))
       setCertificationsText(certificationsToInput(normalized.certifications))
       setProjectsText(projectsToInput(normalized.projects))
+      const pm = normalized.meta?.parseMeta as ParseMeta | undefined
+      if (pm?.overall != null) setParseMeta(pm)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load CV')
     } finally {
@@ -108,7 +142,7 @@ export default function CVReviewPage() {
       projects: parseProjectsInput(projectsText),
     }
     await updateCV(id, { title, templateId: templateId ?? undefined })
-    await updateCVData(id, dataToSave)
+    await updateCVData(id, dataToSave as unknown as Record<string, unknown>)
     setCvData(dataToSave)
   }
 
@@ -185,13 +219,99 @@ export default function CVReviewPage() {
     )
   }
 
+  const health = computeResumeHealth({
+    ...cvData,
+    skills: parseSkillsInput(skillsText),
+    languages: parseLanguagesInput(languagesText),
+    technologies: parseTechnologiesInput(technologiesText),
+  })
+  const progressPct = Math.round(((step + 1) / STEPS.length) * 100)
+
+  const qualityScore = parseMeta?.overall ?? health.score
+  const qualityLabel = parseMeta?.qualityLabel
+    ? QUALITY_LABELS[parseMeta.qualityLabel] ?? qualityFromScore(qualityScore)
+    : qualityFromScore(qualityScore)
+
+  const stepConfidence = (): 'high' | 'medium' | 'low' => {
+    const fields = parseMeta?.fields
+    if (fields) {
+      const map: Record<number, keyof ParseMeta['fields']> = {
+        0: 'personal',
+        1: 'summary',
+        2: 'experience',
+        3: 'education',
+        4: 'skills',
+        5: 'languages',
+        6: 'technologies',
+      }
+      const key = map[step]
+      if (key && key !== 'personal') {
+        const v = fields[key]
+        if (typeof v === 'string') return v as 'high' | 'medium' | 'low'
+      }
+      if (step === 0 && fields.personal) {
+        const levels = [fields.personal.fullName, fields.personal.email, fields.personal.phone]
+        if (levels.every((l) => l === 'high')) return 'high'
+        if (levels.some((l) => l === 'low')) return 'low'
+        return 'medium'
+      }
+    }
+    if (step === 0) {
+      const hasContact = Boolean(cvData.personal.email || cvData.personal.phone)
+      if (cvData.personal.fullName && hasContact) return 'high'
+      if (cvData.personal.fullName || hasContact) return 'medium'
+      return 'low'
+    }
+    if (step === 1) {
+      const len = (cvData.summary ?? '').length
+      return len > 80 ? 'high' : len > 20 ? 'medium' : 'low'
+    }
+    if (step === 2) return cvData.experience.length >= 2 ? 'high' : cvData.experience.length >= 1 ? 'medium' : 'low'
+    if (step === 3) return cvData.education.length >= 1 ? 'high' : 'low'
+    if (step <= 5) return 'medium'
+    return 'high'
+  }
+
   return (
     <AppShell title="Review import">
       <div className="max-w-2xl mx-auto">
         <h1 className="text-xl font-medium text-gray-900">Review imported CV</h1>
-        <p className="text-sm text-gray-500 mt-1 mb-6">
-          Check each section — AI may have missed details. Fix before continuing.
+        <p className="text-sm text-gray-500 mt-1 mb-4">
+          Check each section — verify AI-extracted data before editing.
         </p>
+
+        <div className="mb-6 bg-white border border-purple-100 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-gray-600">
+              Step {step + 1} of {STEPS.length} — {progressPct}% complete
+            </span>
+            <ConfidenceBadge level={stepConfidence()} />
+          </div>
+          <div className="h-2 bg-purple-50 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-300"
+              style={{
+                width: `${progressPct}%`,
+                background: 'linear-gradient(to right, #7c3aed, #a855f7)',
+              }}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="px-2 py-1 rounded-full bg-purple-50 text-purple-700 font-medium">
+              {qualityLabel} — {qualityScore}/100
+            </span>
+            {(parseMeta?.warnings ?? health.issues).slice(0, 3).map((issue) => (
+              <span key={issue} className="px-2 py-1 rounded-full bg-amber-50 text-amber-700">
+                {issue}
+              </span>
+            ))}
+            {parseMeta && !parseMeta.usedAi && (
+              <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                Parsed without AI — verify all fields
+              </span>
+            )}
+          </div>
+        </div>
 
         {error && (
           <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">

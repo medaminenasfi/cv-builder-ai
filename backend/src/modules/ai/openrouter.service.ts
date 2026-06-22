@@ -7,10 +7,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_OPENROUTER_MODEL = 'anthropic/claude-sonnet-4';
-const CHEAP_OPENROUTER_MODEL = 'google/gemini-2.0-flash-001';
-const DEFAULT_OPENROUTER_MAX_TOKENS = 768;
-const ABSOLUTE_MAX_TOKENS = 1024;
+const DEFAULT_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
+const CHEAP_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
+const DEFAULT_OPENROUTER_MAX_TOKENS = 192;
+const ABSOLUTE_MAX_TOKENS = 256;
 
 const OPENROUTER_MODEL_MAP: Record<string, string> = {
   'claude-sonnet-4-20250514': DEFAULT_OPENROUTER_MODEL,
@@ -30,8 +30,8 @@ function parseAffordableMaxTokens(message: string): number | undefined {
   const match = message.match(/can only afford (\d+)/i);
   if (!match) return undefined;
   const afford = Number.parseInt(match[1], 10);
-  if (!Number.isFinite(afford) || afford < 128) return undefined;
-  return Math.max(128, afford - 48);
+  if (!Number.isFinite(afford) || afford < 64) return undefined;
+  return Math.max(64, afford - 8);
 }
 
 function extractOpenRouterErrorMessage(body: string): string {
@@ -100,9 +100,10 @@ export class OpenRouterService {
     system: string,
     user: string,
     maxTokens?: number,
+    modelOverride?: string,
   ): Promise<string> {
     const apiKey = this.getApiKey();
-    let model = this.resolveModel(apiKey);
+    let model = modelOverride ?? this.resolveModel(apiKey);
     const referer =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
     const cap = this.resolveMaxTokens();
@@ -183,9 +184,15 @@ export class OpenRouterService {
         throw new ServiceUnavailableException('Invalid OPENROUTER_API_KEY');
       }
 
+      if (response.status === 404 && /no endpoints found/i.test(message)) {
+        throw new BadGatewayException(
+          `OpenRouter model "${model}" is unavailable. Update OPENROUTER_MODEL in backend/.env (try google/gemini-2.5-flash-lite). See openrouter.ai/models`,
+        );
+      }
+
       if (response.status === 402) {
         throw new BadGatewayException(
-          `OpenRouter credits exhausted: ${message} Add credits at openrouter.ai/settings/credits or set OPENROUTER_MAX_TOKENS=512 and OPENROUTER_MODEL=google/gemini-2.0-flash-001 in backend/.env`,
+          `OpenRouter credits exhausted: ${message} Add credits at openrouter.ai/settings/credits or set OPENROUTER_MAX_TOKENS=192 and OPENROUTER_MODEL=google/gemini-2.5-flash-lite in backend/.env`,
         );
       }
 

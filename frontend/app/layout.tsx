@@ -2,6 +2,9 @@ import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import { AuthProvider } from '@/providers/AuthProvider'
+import { QueryProvider } from '@/providers/QueryProvider'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { Toaster } from 'sonner'
 import './globals.css'
 
 const inter = Inter({
@@ -49,7 +52,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} bg-slate-50`}>
       <body className="font-inter antialiased bg-slate-50 text-gray-900">
-        <AuthProvider>{children}</AuthProvider>
+        <ErrorBoundary>
+          <QueryProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </QueryProvider>
+        </ErrorBoundary>
+        <Toaster position="top-right" richColors closeButton />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

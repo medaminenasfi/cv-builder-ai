@@ -61,11 +61,63 @@ export interface TemplateImportResult {
   notes?: string;
 }
 
-export function importTemplateFromFile(file: File) {
+export function isCvResumeJson(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const o = data as Record<string, unknown>;
+  if (typeof o.htmlStructure === 'string' && typeof o.css === 'string') return false;
+  return Boolean(
+    o.personal_info ||
+      o.profile ||
+      (Array.isArray(o.experience) && o.experience.length > 0) ||
+      (o.personal && typeof o.personal === 'object'),
+  );
+}
+
+export function listBundledTemplates() {
+  return apiFetchAdmin<{ slug: string; name: string; supportsRtl: boolean }[]>(
+    '/admin/templates/bundled',
+  );
+}
+
+export function loadBundledTemplate(slug: string) {
+  return apiFetchAdmin<TemplateImportResult>(`/admin/templates/bundled/${slug}/load`, {
+    method: 'POST',
+  });
+}
+
+export async function importTemplateFromJson(file: File) {
+  const text = await file.text();
+  return importTemplateJsonText(text);
+}
+
+export function importTemplateJsonText(text: string) {
+  return apiFetchAdmin<TemplateImportResult>('/admin/templates/import/json/text', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
+export function importTemplateFromHtmlCss(htmlFile: File, cssFile: File, name?: string) {
   const form = new FormData();
-  form.append('file', file);
-  return apiFetchAdmin<TemplateImportResult>('/admin/templates/import', {
+  form.append('html', htmlFile);
+  form.append('css', cssFile);
+  if (name?.trim()) form.append('name', name.trim());
+  return apiFetchAdmin<TemplateImportResult>('/admin/templates/import/package', {
     method: 'POST',
     body: form,
   });
 }
+
+export const TEMPLATE_JSON_EXAMPLE = {
+  name: 'My Template',
+  slug: 'my-template',
+  htmlStructure: `<div class="cv-root">
+  <h1>{{fullName}}</h1>
+  <p>{{contactLine}}</p>
+  <section>{{summary}}</section>
+  <section>{{experience}}</section>
+  <section>{{skills}}</section>
+</div>`,
+  css: `.cv-root { font-family: sans-serif; max-width: 800px; margin: 0 auto; }`,
+  supportsRtl: false,
+} as const;

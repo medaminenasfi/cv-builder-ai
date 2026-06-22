@@ -29,6 +29,7 @@ export interface CVData {
     direction: 'ltr' | 'rtl';
     tone?: 'professional' | 'creative' | 'technical' | 'academic';
     sections: string[];
+    parseMeta?: Record<string, unknown>;
   };
   personal: {
     fullName: string;

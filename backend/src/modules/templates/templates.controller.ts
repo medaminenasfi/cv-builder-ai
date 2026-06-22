@@ -9,11 +9,12 @@ import {
   Post,
   Query,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -24,6 +25,7 @@ import { UserEntity } from '../users/entities/user.entity';
 import { CreateTemplateDto, UpdateTemplateDto } from './dto/template.dto';
 import { TemplatesService } from './templates.service';
 import { TemplateImportService } from './template-import.service';
+import { BuiltinTemplatesService } from './builtin-templates.service';
 
 @ApiTags('templates')
 @Controller('templates')
@@ -58,10 +60,23 @@ export class AdminTemplatesController {
   constructor(
     private readonly templatesService: TemplatesService,
     private readonly templateImportService: TemplateImportService,
+    private readonly builtinTemplatesService: BuiltinTemplatesService,
   ) {}
 
+  @Get('bundled')
+  listBundled() {
+    return this.builtinTemplatesService.listBundled();
+  }
+
+  @Post('bundled/:slug/load')
+  loadBundled(@Param('slug') slug: string) {
+    return this.builtinTemplatesService.loadBundled(slug);
+  }
+
   @Post('import')
-  @ApiOperation({ summary: 'Import template from PDF or image via AI vision' })
+  @ApiOperation({
+    summary: 'Import template from PDF/image (AI), or a .json package (no AI)',
+  })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -71,12 +86,71 @@ export class AdminTemplatesController {
   )
   async importFromFile(@UploadedFile() file?: Express.Multer.File) {
     if (!file?.buffer?.length) {
-      throw new BadRequestException('Upload a PDF, PNG, or JPEG file');
+      throw new BadRequestException(
+        'Upload a .json package, PDF, PNG, or JPEG file',
+      );
     }
     return this.templateImportService.extractTemplateConfigFromFile(
       file.buffer,
       file.mimetype,
+      file.originalname,
     );
+  }
+
+  @Post('import/json/text')
+  @ApiOperation({
+    summary: 'Import template from pasted ChatGPT JSON (auto-repairs broken quotes)',
+  })
+  importFromJsonText(@Body() body: { text?: string }) {
+    if (!body?.text?.trim()) {
+      throw new BadRequestException('Paste the JSON text from ChatGPT');
+    }
+    return this.templateImportService.importFromJsonText(body.text);
+  }
+
+  @Post('import/json')
+  @ApiOperation({ summary: 'Import template design from JSON (htmlStructure + css)' })
+  importFromJson(@Body() body: unknown) {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Send a JSON object with name, htmlStructure, and css');
+    }
+    return this.templateImportService.importFromJsonPayload(body);
+  }
+
+  @Post('import/package')
+  @ApiOperation({ summary: 'Import template from HTML + CSS files (no AI)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'html', maxCount: 1 },
+        { name: 'css', maxCount: 1 },
+      ],
+      {
+        storage: memoryStorage(),
+        limits: { fileSize: 2 * 1024 * 1024 },
+      },
+    ),
+  )
+  async importFromPackage(
+    @UploadedFiles()
+    files: { html?: Express.Multer.File[]; css?: Express.Multer.File[] },
+    @Body('name') name?: string,
+  ) {
+    const htmlFile = files.html?.[0];
+    const cssFile = files.css?.[0];
+    if (!htmlFile?.buffer?.length || !cssFile?.buffer?.length) {
+      throw new BadRequestException('Upload both an HTML file and a CSS file');
+    }
+    const derivedName =
+      name?.trim() ||
+      htmlFile.originalname.replace(/\.html?$/i, '') ||
+      'Imported Template';
+    return this.templateImportService.importTemplatePackage({
+      name: derivedName,
+      htmlStructure: htmlFile.buffer.toString('utf8'),
+      css: cssFile.buffer.toString('utf8'),
+    });
   }
 
   @Get()

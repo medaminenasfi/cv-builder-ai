@@ -1,7 +1,6 @@
 'use client';
 
 import { AppShell } from '@/components/layout/AppShell';
-import { CVLivePreview } from '@/components/cv/CVLivePreview';
 import { RichTextSummary } from '@/components/cv/RichTextSummary';
 import {
   DEFAULT_SECTIONS,
@@ -34,10 +33,28 @@ import type { CVData, CVExperience, CVEducation } from '@/lib/types/cv-data';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/providers/AuthProvider';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, Save, Sparkles, Download, ChevronDown, Briefcase, FileUp, Eye, Printer } from 'lucide-react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import dynamic from 'next/dynamic';
+import { Plus, Trash2, Save, Download, ChevronDown, Briefcase, Eye, Printer } from 'lucide-react';
+import { toast } from 'sonner';
+import { EditorShell } from '@/components/cv/editor/EditorShell';
+import { EditorHeader } from '@/components/cv/editor/EditorHeader';
+import { EditorAiSidePanel } from '@/components/cv/editor/EditorAiSidePanel';
+import { EditorInlineParseWizard } from '@/components/cv/editor/EditorInlineParseWizard';
+import type { EditorPanelMode } from '@/components/cv/editor/EditorModeSwitch';
+import { EditorAiPanel, AI_ACTIONS, type AiActionId } from '@/components/cv/editor/EditorAiPanel';
+import { SectionPanel } from '@/components/cv/editor/SectionPanel';
+import { SortableList } from '@/components/cv/editor/SortableList';
+import type { EditorSectionId } from '@/components/cv/editor/EditorSidebar';
+import type { EnhanceResult, ParseMeta } from '@/lib/cvs-api';
+import { computeResumeHealth } from '@/lib/resume-health';
 import { useAutoSave } from '@/lib/use-auto-save';
+
+const CVLivePreview = dynamic(
+  () => import('@/components/cv/CVLivePreview').then((m) => m.CVLivePreview),
+  { ssr: false, loading: () => <div className="h-96 bg-purple-50 rounded-xl animate-pulse" /> },
+);
 
 function Section({
   title,
@@ -84,9 +101,24 @@ function Field({
 const inputCls =
   'w-full border border-purple-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200';
 
-export default function CVEditorPage() {
+export default function CVEditorPageWrapper() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell title="Edit CV">
+          <p className="text-gray-500 text-sm">Loading editor…</p>
+        </AppShell>
+      }
+    >
+      <CVEditorPage />
+    </Suspense>
+  );
+}
+
+function CVEditorPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = params.id as string;
   const { user } = useAuth();
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -105,23 +137,21 @@ export default function CVEditorPage() {
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tone, setTone] = useState<'professional' | 'creative' | 'technical' | 'academic'>('professional');
   const [enhancing, setEnhancing] = useState(false);
+  const [enhancePreview, setEnhancePreview] = useState<EnhanceResult | null>(null);
+  const [undoSnapshot, setUndoSnapshot] = useState<CVData | null>(null);
+  const [aiActionId, setAiActionId] = useState<AiActionId | null>(null);
+  const [activeSection, setActiveSection] = useState<EditorSectionId>('personal');
+  const [editorMode, setEditorMode] = useState<EditorPanelMode>('manual');
+  const [parseWizardOpen, setParseWizardOpen] = useState(false);
+  const [parseWizardStep, setParseWizardStep] = useState(0);
+  const [parseMeta, setParseMeta] = useState<ParseMeta | null>(null);
+  const [importStep, setImportStep] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [cv, tpls] = await Promise.all([
-        getCV(id),
-        listActiveTemplates(),
-      ]);
-      setTitle(cv.title);
-      setTemplateId(cv.templateId);
-      setTemplates(tpls);
-
+  const applyServerCv = useCallback(
+    (cv: Awaited<ReturnType<typeof getCV>>) => {
       const locale = (cv.locale ?? 'en') as CVData['meta']['locale'];
       const normalized = normalizeCVData(cv.data, locale);
 
@@ -132,22 +162,79 @@ export default function CVEditorPage() {
         normalized.personal.fullName = cv.title;
       }
 
+      setTitle(cv.title);
+      setTemplateId(cv.templateId);
       setCvData(normalized);
       setSkillsText(skillsToInput(normalized.skills));
       setLanguagesText(languagesToInput(normalized.languages));
       setTechnologiesText(technologiesToInput(normalized.technologies));
       setCertificationsText(certificationsToInput(normalized.certifications));
       setProjectsText(projectsToInput(normalized.projects));
+
+      const pm = normalized.meta?.parseMeta as ParseMeta | undefined;
+      if (pm?.overall != null) setParseMeta(pm);
+
+      return JSON.stringify({
+        title: cv.title,
+        templateId: cv.templateId,
+        data: normalized,
+      });
+    },
+    [user?.email],
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [cv, tpls] = await Promise.all([getCV(id), listActiveTemplates()]);
+      setTemplates(tpls);
+      applyServerCv(cv);
+      const normalized = normalizeCVData(cv.data, (cv.locale ?? 'en') as CVData['meta']['locale']);
+      const loadedHealth = computeResumeHealth(normalized);
+      if (loadedHealth.score >= 25 || normalized.experience.length > 0 || normalized.personal.fullName?.trim()) {
+        setEditorMode('manual');
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Failed to load CV');
     } finally {
       setLoading(false);
     }
-  }, [id, user?.email]);
+  }, [id, applyServerCv]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (searchParams.get('ai') === '1' && !loading) {
+      setEditorMode('ai');
+    }
+    if (searchParams.get('parse') === '1' && !loading) {
+      setEditorMode('ai');
+      const stored = sessionStorage.getItem(`parseMeta-${id}`);
+      if (stored) {
+        try {
+          setParseMeta(JSON.parse(stored) as ParseMeta);
+        } catch {
+          /* ignore */
+        }
+      }
+      setParseWizardOpen(true);
+      setParseWizardStep(0);
+    }
+    const kw = searchParams.get('keywords');
+    if (kw && !loading) {
+      const existing = skillsText.trim();
+      const added = kw.split(',').map((k) => k.trim()).filter(Boolean);
+      const merged = [...new Set([...existing.split(',').map((s) => s.trim()).filter(Boolean), ...added])];
+      setSkillsText(merged.join(', '));
+      setActiveSection('skills');
+      setMessage(`Added ${added.length} keyword(s) from job match`);
+      toast.success(`Added ${added.length} keyword(s) from job match`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, searchParams]);
 
   const patchData = (patch: Partial<CVData>) => {
     setCvData((prev) => ({ ...prev, ...patch }));
@@ -179,13 +266,14 @@ export default function CVEditorPage() {
   const autoSavePayload = useCallback(async () => {
     const dataToSave = buildDataToSave();
     await updateCV(id, { title, templateId: templateId ?? undefined });
-    await updateCVData(id, dataToSave);
+    await updateCVData(id, dataToSave as unknown as Record<string, unknown>);
     setCvData(dataToSave);
   }, [id, title, templateId, cvData, skillsText, languagesText, technologiesText, certificationsText, projectsText]);
 
-  const { status: autoSaveStatus, markSaved } = useAutoSave({
-    enabled: !loading,
+  const { status: autoSaveStatus, markSaved, flushOnBlur } = useAutoSave({
+    enabled: !loading && !importing,
     snapshot: saveSnapshot,
+    debounceMs: 5000,
     onSave: autoSavePayload,
   });
 
@@ -204,10 +292,11 @@ export default function CVEditorPage() {
     try {
       const dataToSave = buildDataToSave();
       await updateCV(id, { title, templateId: templateId ?? undefined });
-      await updateCVData(id, dataToSave);
+      await updateCVData(id, dataToSave as unknown as Record<string, unknown>);
       setCvData(dataToSave);
       markSaved(saveSnapshot);
       setMessage('Saved successfully');
+      toast.success('Saved successfully');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Save failed');
     } finally {
@@ -215,25 +304,55 @@ export default function CVEditorPage() {
     }
   };
 
-  const enhance = async () => {
+  const runAiAction = async (action: (typeof AI_ACTIONS)[number]) => {
     setEnhancing(true);
+    setAiActionId(action.id);
     setError(null);
     try {
       await save();
-      const result = await enhanceCV(id, ['summary', 'experience', 'skills'], tone);
-      await applyEnhancement(id, result.after as unknown as Record<string, unknown>);
-      setCvData(result.after);
-      setSkillsText(skillsToInput(result.after.skills));
-      setLanguagesText(languagesToInput(result.after.languages));
-      setTechnologiesText(technologiesToInput(result.after.technologies));
-      setCertificationsText(certificationsToInput(result.after.certifications));
-      setProjectsText(projectsToInput(result.after.projects));
-      setMessage(`CV enhanced (${tone} tone) — review changes`);
+      setUndoSnapshot(buildDataToSave());
+      const result = await enhanceCV(id, action.sections, action.tone);
+      setEnhancePreview(result);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Enhance failed');
     } finally {
       setEnhancing(false);
+      setAiActionId(null);
     }
+  };
+
+  const applyEnhancePreview = async () => {
+    if (!enhancePreview) return;
+    setEnhancing(true);
+    try {
+      await applyEnhancement(id, enhancePreview.after as unknown as Record<string, unknown>);
+      setCvData(enhancePreview.after);
+      setSkillsText(skillsToInput(enhancePreview.after.skills));
+      setLanguagesText(languagesToInput(enhancePreview.after.languages));
+      setTechnologiesText(technologiesToInput(enhancePreview.after.technologies));
+      setCertificationsText(certificationsToInput(enhancePreview.after.certifications));
+      setProjectsText(projectsToInput(enhancePreview.after.projects));
+      setEnhancePreview(null);
+      setMessage('AI changes applied');
+      toast.success('AI changes applied');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Apply failed');
+    } finally {
+      setEnhancing(false);
+    }
+  };
+
+  const undoEnhance = () => {
+    if (!undoSnapshot) return;
+    setCvData(undoSnapshot);
+    setSkillsText(skillsToInput(undoSnapshot.skills));
+    setLanguagesText(languagesToInput(undoSnapshot.languages));
+    setTechnologiesText(technologiesToInput(undoSnapshot.technologies));
+    setCertificationsText(certificationsToInput(undoSnapshot.certifications));
+    setProjectsText(projectsToInput(undoSnapshot.projects));
+    setUndoSnapshot(null);
+    setEnhancePreview(null);
+    setMessage('Changes reverted');
   };
 
   const openPreview = async () => {
@@ -273,6 +392,7 @@ export default function CVEditorPage() {
       const safeName = (title || 'resume').replace(/[^\w\-]+/g, '_').slice(0, 60);
       await exportCVPdf(id, `${safeName}.pdf`);
       setMessage('PDF downloaded');
+      toast.success('PDF downloaded');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'PDF download failed');
     } finally {
@@ -282,25 +402,71 @@ export default function CVEditorPage() {
 
   const handleImportFile = async (file: File | undefined) => {
     if (!file) return;
-    const ok = window.confirm(
-      'Import will replace all current CV fields with parsed data from your file. Continue?',
-    );
-    if (!ok) {
-      if (importFileRef.current) importFileRef.current.value = '';
-      return;
-    }
     setImporting(true);
+    setImportStep('Uploading…');
     setError(null);
     setMessage(null);
+    setEditorMode('ai');
     try {
-      await importCVFileIntoExisting(id, file);
-      await load();
-      setMessage('CV imported — pick a template and review your fields');
+      setImportStep('Extracting text…');
+      await new Promise((r) => setTimeout(r, 200));
+      setImportStep('AI parsing sections…');
+      const result = await importCVFileIntoExisting(id, file);
+      const cv = await getCV(id);
+      const snap = applyServerCv(cv);
+      markSaved(snap);
+
+      if (result.parseMeta) {
+        setParseMeta(result.parseMeta);
+        sessionStorage.setItem(`parseMeta-${id}`, JSON.stringify(result.parseMeta));
+      }
+
+      setParseWizardStep(0);
+      setParseWizardOpen(true);
+
+      const normalized = normalizeCVData(cv.data, (cv.locale ?? 'en') as CVData['meta']['locale']);
+      const expCount = normalized.experience.length;
+      const eduCount = normalized.education.length;
+      const hasSummary = (normalized.summary?.trim().length ?? 0) >= 20;
+      const hasLocation = Boolean(normalized.personal.location?.trim());
+
+      if (result.parseMeta && !result.parseMeta.usedAi) {
+        toast.warning('Basic parse mode — set OPENROUTER_API_KEY for full AI extraction', { duration: 5000 });
+      }
+
+      const parts: string[] = [];
+      if (expCount) parts.push(`${expCount} job${expCount > 1 ? 's' : ''}`);
+      if (eduCount) parts.push(`${eduCount} education`);
+      if (hasSummary) parts.push('summary');
+      if (hasLocation) parts.push('location');
+
+      if (parts.length) {
+        toast.success(`Imported: ${parts.join(', ')} — review on the left`, { duration: 5000 });
+      } else {
+        toast.warning('Import done — fill in missing fields in the review panel', { duration: 4000 });
+      }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Import failed');
+      const msg = e instanceof ApiError ? e.message : 'Import failed';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setImporting(false);
+      setImportStep(null);
       if (importFileRef.current) importFileRef.current.value = '';
+    }
+  };
+
+  const finishParseWizard = async () => {
+    setSaving(true);
+    try {
+      await save();
+      setParseWizardOpen(false);
+      setEditorMode('manual');
+      toast.success('Imported data saved — edit manually anytime');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -349,7 +515,28 @@ export default function CVEditorPage() {
     patchData({ education: cvData.education.filter((_, i) => i !== index) });
   };
 
-  const previewData: CVData = buildDataToSave();
+  const previewData = useMemo(
+    () => buildDataToSave(),
+    [cvData, skillsText, languagesText, technologiesText, certificationsText, projectsText],
+  );
+
+  const previewRevision = useMemo(
+    () => JSON.stringify(previewData) || '{}',
+    [previewData],
+  );
+  const health = useMemo(() => computeResumeHealth(previewData), [previewData]);
+
+  const parseImportStats = useMemo(
+    () => ({
+      experienceCount: cvData.experience.length,
+      educationCount: cvData.education.length,
+      hasSummary: (cvData.summary?.trim().length ?? 0) >= 20,
+      hasLocation: Boolean(cvData.personal.location?.trim()),
+      skillsCount: cvData.skills.length,
+      languagesCount: cvData.languages.length,
+    }),
+    [cvData],
+  );
 
   const toggleSection = (key: string) => {
     setCvData((prev) => {
@@ -372,113 +559,16 @@ export default function CVEditorPage() {
   }
 
   return (
-    <AppShell
-      title="Edit CV"
-      actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-gray-500 hidden sm:inline">
-            {autoSaveStatus === 'saving' && 'Saving…'}
-            {autoSaveStatus === 'dirty' && 'Unsaved changes'}
-            {autoSaveStatus === 'saved' && 'All saved'}
-            {autoSaveStatus === 'error' && 'Auto-save failed'}
-          </span>
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white text-sm rounded-lg disabled:opacity-50"
-          >
-            <Save size={16} />
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <Link
-            href={`/job-match?cvId=${id}`}
-            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg"
-          >
-            <Briefcase size={16} />
-            Job Match
-          </Link>
-          <select
-            value={tone}
-            onChange={(e) =>
-              setTone(e.target.value as typeof tone)
-            }
-            className="border border-purple-100 rounded-lg px-2 py-2 text-sm text-gray-700"
-            aria-label="Enhance tone"
-          >
-            <option value="professional">Professional</option>
-            <option value="creative">Creative</option>
-            <option value="technical">Technical</option>
-            <option value="academic">Academic</option>
-          </select>
-          <button
-            type="button"
-            onClick={enhance}
-            disabled={enhancing}
-            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg disabled:opacity-50"
-          >
-            <Sparkles size={16} />
-            {enhancing ? 'Enhancing…' : 'AI Enhance'}
-          </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setExportOpen((o) => !o)}
-              className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 text-sm rounded-lg"
-            >
-              <Download size={16} />
-              Export
-              <ChevronDown size={14} />
-            </button>
-            {exportOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setExportOpen(false)}
-                  aria-hidden
-                />
-                <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-purple-100 rounded-lg shadow-lg py-1 min-w-[180px]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExportOpen(false);
-                      openPreview();
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
-                  >
-                    <Eye size={14} />
-                    A4 preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExportOpen(false);
-                      void downloadPdf();
-                    }}
-                    disabled={downloadingPdf}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left disabled:opacity-50"
-                  >
-                    <Download size={14} />
-                    {downloadingPdf ? 'Generating PDF…' : 'Download PDF'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setExportOpen(false);
-                      printPdf();
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
-                  >
-                    <Printer size={14} />
-                    Browser print
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      }
-    >
+    <AppShell title="" hideTopBar fullBleed>
+      <EditorHeader
+        title={title}
+        health={health}
+        autoSaveStatus={autoSaveStatus}
+        downloadingPdf={downloadingPdf}
+        onDownloadPdf={() => void downloadPdf()}
+      />
+
+      <div className="px-4 sm:px-6 py-4 max-w-[1800px] mx-auto w-full">
       {error && (
         <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
           {error}
@@ -490,8 +580,88 @@ export default function CVEditorPage() {
         </p>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-6 items-start">
-        <div className="space-y-4 pb-8">
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 text-purple-700 text-xs rounded-lg disabled:opacity-50"
+        >
+          <Save size={14} />
+          {saving ? 'Saving…' : 'Save now'}
+        </button>
+        <Link
+          href={`/cv/${id}/review`}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 text-purple-700 text-xs rounded-lg"
+        >
+          Review wizard
+        </Link>
+        <Link
+          href={`/job-match?cvId=${id}`}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded-lg font-medium"
+          style={{ background: 'linear-gradient(to right, #7c3aed, #a855f7)' }}
+        >
+          <Briefcase size={14} />
+          Job Match
+        </Link>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setExportOpen((o) => !o)}
+            className="flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 text-purple-700 text-xs rounded-lg"
+          >
+            <Download size={14} />
+            More exports
+            <ChevronDown size={12} />
+          </button>
+          {exportOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setExportOpen(false)} aria-hidden />
+              <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-purple-100 rounded-lg shadow-lg py-1 min-w-[160px]">
+                <button type="button" onClick={() => { setExportOpen(false); openPreview(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-purple-50 text-left">
+                  <Eye size={12} /> A4 preview
+                </button>
+                <button type="button" onClick={() => { setExportOpen(false); printPdf(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-purple-50 text-left">
+                  <Printer size={12} /> Browser print
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {enhancePreview && editorMode === 'ai' && !parseWizardOpen && (
+        <div className="mb-4 xl:hidden">
+          <EditorAiPanel
+            loading={enhancing}
+            activeAction={aiActionId}
+            preview={enhancePreview}
+            onRun={runAiAction}
+            onApply={applyEnhancePreview}
+            onDiscard={() => setEnhancePreview(null)}
+            onUndo={undoEnhance}
+            canUndo={Boolean(undoSnapshot)}
+          />
+        </div>
+      )}
+
+      <EditorShell
+        mode={editorMode}
+        onModeChange={setEditorMode}
+        sidebarActive={activeSection}
+        onSectionSelect={setActiveSection}
+        preview={
+          <CVLivePreview
+            cvId={id}
+            data={previewData as unknown as Record<string, unknown>}
+            dataRevision={previewRevision}
+            templateId={templateId}
+            templateName={selectedTemplate?.name}
+          />
+        }
+        manualPanel={
+        <div className="space-y-4 pb-8" onBlur={() => void flushOnBlur()}>
+          <SectionPanel sectionId="settings">
           <Section title="Resume & Template">
             <Field label="CV title">
               <input
@@ -523,28 +693,6 @@ export default function CVEditorPage() {
                 </p>
               )}
             </Field>
-            <div className="pt-2 border-t border-purple-50">
-              <p className="text-xs font-medium text-gray-500 mb-2">Import resume</p>
-              <button
-                type="button"
-                onClick={() => importFileRef.current?.click()}
-                disabled={importing}
-                className="flex items-center gap-2 px-3 py-2 text-sm border border-dashed border-purple-200 rounded-lg text-purple-700 hover:bg-purple-50 disabled:opacity-50 w-full justify-center"
-              >
-                <FileUp size={16} />
-                {importing ? 'Parsing PDF/Word…' : 'Import PDF or Word (AI parse)'}
-              </button>
-              <p className="text-[10px] text-gray-400 mt-1.5">
-                Replaces current fields. Choose a template above to apply a design after import.
-              </p>
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="hidden"
-                onChange={(e) => handleImportFile(e.target.files?.[0])}
-              />
-            </div>
             <Field label="Visible sections">
               <div className="flex flex-wrap gap-2 mt-1">
                 {DEFAULT_SECTIONS.map((key) => {
@@ -567,7 +715,9 @@ export default function CVEditorPage() {
               </div>
             </Field>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="personal">
           <Section title="Personal Info">
             <Field label="Full name">
               <input
@@ -630,7 +780,9 @@ export default function CVEditorPage() {
               </Field>
             </div>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="summary">
           <Section title="Summary / Profil">
             <RichTextSummary
               value={cvData.summary ?? ''}
@@ -638,13 +790,18 @@ export default function CVEditorPage() {
               placeholder="Professional summary…"
             />
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="experience">
           <Section title="Experience">
             {cvData.experience.length === 0 && (
               <p className="text-xs text-gray-400">No experience yet — add your first role.</p>
             )}
-            {cvData.experience.map((exp, index) => (
-              <div key={exp.id} className="border border-purple-50 rounded-lg p-3 space-y-2">
+            <SortableList
+              items={cvData.experience}
+              onReorder={(experience) => patchData({ experience })}
+              renderItem={(exp, index) => (
+              <div className="border border-purple-50 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-medium text-purple-600">Role #{index + 1}</span>
                   <button
@@ -697,7 +854,8 @@ export default function CVEditorPage() {
                   placeholder="One achievement per line"
                 />
               </div>
-            ))}
+              )}
+            />
             <button
               type="button"
               onClick={addExperience}
@@ -706,13 +864,18 @@ export default function CVEditorPage() {
               <Plus size={14} /> Add experience
             </button>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="education">
           <Section title="Education">
             {cvData.education.length === 0 && (
               <p className="text-xs text-gray-400">No education entries yet.</p>
             )}
-            {cvData.education.map((edu, index) => (
-              <div key={edu.id} className="border border-purple-50 rounded-lg p-3 space-y-2">
+            <SortableList
+              items={cvData.education}
+              onReorder={(education) => patchData({ education })}
+              renderItem={(edu, index) => (
+              <div className="border border-purple-50 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between">
                   <span className="text-xs font-medium text-purple-600">School #{index + 1}</span>
                   <button
@@ -750,7 +913,8 @@ export default function CVEditorPage() {
                   />
                 </div>
               </div>
-            ))}
+              )}
+            />
             <button
               type="button"
               onClick={addEducation}
@@ -759,7 +923,9 @@ export default function CVEditorPage() {
               <Plus size={14} /> Add education
             </button>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="skills">
           <Section title="Skills">
             <textarea
               value={skillsText}
@@ -770,7 +936,9 @@ export default function CVEditorPage() {
             />
             <p className="text-[10px] text-gray-400">Soft skills — separate with commas</p>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="languages">
           <Section title="Languages">
             <textarea
               value={languagesText}
@@ -781,7 +949,9 @@ export default function CVEditorPage() {
             />
             <p className="text-[10px] text-gray-400">One per line: Language — Level</p>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="technologies">
           <Section title="Technologies">
             <textarea
               value={technologiesText}
@@ -792,7 +962,9 @@ export default function CVEditorPage() {
             />
             <p className="text-[10px] text-gray-400">Tools & frameworks — separate with commas</p>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="certifications">
           <Section title="Certifications" defaultOpen={false}>
             <textarea
               value={certificationsText}
@@ -803,7 +975,9 @@ export default function CVEditorPage() {
             />
             <p className="text-[10px] text-gray-400">One per line: Name — Issuer — Date</p>
           </Section>
+          </SectionPanel>
 
+          <SectionPanel sectionId="projects">
           <Section title="Projects" defaultOpen={false}>
             <textarea
               value={projectsText}
@@ -814,14 +988,169 @@ export default function CVEditorPage() {
             />
             <p className="text-[10px] text-gray-400">Project blocks: title line, then bullet lines starting with -</p>
           </Section>
+          </SectionPanel>
         </div>
-
-        <CVLivePreview
-          cvId={id}
-          data={previewData}
-          templateId={templateId}
-          templateName={selectedTemplate?.name}
-        />
+        }
+        aiPanel={
+          <EditorAiSidePanel
+            cvId={id}
+            importing={importing}
+            importStep={importStep}
+            fileInputRef={importFileRef}
+            onImportClick={() => importFileRef.current?.click()}
+            onFileSelect={handleImportFile}
+            parseWizard={
+              parseWizardOpen ? (
+                <EditorInlineParseWizard
+                  step={parseWizardStep}
+                  onStepChange={setParseWizardStep}
+                  parseMeta={parseMeta}
+                  importStats={parseImportStats}
+                  saving={saving}
+                  onFinish={() => void finishParseWizard()}
+                  onCancel={() => {
+                    setParseWizardOpen(false);
+                    setEditorMode('manual');
+                  }}
+                >
+                  {parseWizardStep === 0 && (
+                    <div className="space-y-3">
+                      <Field label="CV title">
+                        <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} />
+                      </Field>
+                      <Field label="Template">
+                        <select value={templateId ?? ''} onChange={(e) => setTemplateId(e.target.value || null)} className={inputCls}>
+                          <option value="">Default</option>
+                          {templates.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Full name">
+                        <input value={cvData.personal.fullName} onChange={(e) => patchPersonal({ fullName: e.target.value })} className={inputCls} />
+                      </Field>
+                      <Field label="Job title">
+                        <input value={cvData.personal.title} onChange={(e) => patchPersonal({ title: e.target.value })} className={inputCls} />
+                      </Field>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Email">
+                          <input type="email" value={cvData.personal.email} onChange={(e) => patchPersonal({ email: e.target.value })} className={inputCls} />
+                        </Field>
+                        <Field label="Phone">
+                          <input value={cvData.personal.phone ?? ''} onChange={(e) => patchPersonal({ phone: e.target.value })} className={inputCls} />
+                        </Field>
+                      </div>
+                      <Field label="Location">
+                        <input value={cvData.personal.location ?? ''} onChange={(e) => patchPersonal({ location: e.target.value })} className={inputCls} />
+                      </Field>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="LinkedIn">
+                          <input value={cvData.personal.linkedin ?? ''} onChange={(e) => patchPersonal({ linkedin: e.target.value })} className={inputCls} />
+                        </Field>
+                        <Field label="Website">
+                          <input value={cvData.personal.website ?? ''} onChange={(e) => patchPersonal({ website: e.target.value })} className={inputCls} />
+                        </Field>
+                      </div>
+                    </div>
+                  )}
+                  {parseWizardStep === 1 && (
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-xs font-medium text-gray-700 mb-1.5">Professional summary</p>
+                        <RichTextSummary value={cvData.summary ?? ''} onChange={(text) => patchData({ summary: text })} placeholder="Profile summary — who you are and what you offer…" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-700 mb-1.5">Experience ({cvData.experience.length})</p>
+                        {cvData.experience.length === 0 && (
+                          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5 mb-2">
+                            No jobs detected — add them below or re-import your CV.
+                          </p>
+                        )}
+                        <div className="space-y-3">
+                          {cvData.experience.map((exp, index) => (
+                            <div key={exp.id} className="border border-purple-50 rounded-lg p-3 space-y-2">
+                              <input value={exp.role} onChange={(e) => updateExperience(index, { role: e.target.value })} className={inputCls} placeholder="Job title" />
+                              <input value={exp.company} onChange={(e) => updateExperience(index, { company: e.target.value })} className={inputCls} placeholder="Company" />
+                              <div className="grid grid-cols-2 gap-2">
+                                <input value={exp.startDate} onChange={(e) => updateExperience(index, { startDate: e.target.value })} className={inputCls} placeholder="Start" />
+                                <input
+                                  value={exp.endDate === 'present' ? 'Present' : (exp.endDate ?? '')}
+                                  onChange={(e) => updateExperience(index, { endDate: e.target.value.toLowerCase() === 'present' ? 'present' : e.target.value })}
+                                  className={inputCls}
+                                  placeholder="End"
+                                />
+                              </div>
+                              <textarea
+                                value={(exp.bullets ?? []).join('\n')}
+                                onChange={(e) => updateExperience(index, { bullets: e.target.value.split('\n').filter(Boolean) })}
+                                rows={3}
+                                className={inputCls}
+                                placeholder="Achievements, one per line"
+                              />
+                            </div>
+                          ))}
+                          <button type="button" onClick={addExperience} className="text-xs text-purple-600 hover:underline flex items-center gap-1">
+                            <Plus size={14} /> Add job
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-700 mb-1.5">Education ({cvData.education.length})</p>
+                        <div className="space-y-3">
+                          {cvData.education.map((edu, index) => (
+                            <div key={edu.id} className="border border-purple-50 rounded-lg p-3 space-y-2">
+                              <input value={edu.institution} onChange={(e) => updateEducation(index, { institution: e.target.value })} className={inputCls} placeholder="School" />
+                              <input value={edu.degree} onChange={(e) => updateEducation(index, { degree: e.target.value })} className={inputCls} placeholder="Degree" />
+                              <div className="grid grid-cols-2 gap-2">
+                                <input value={edu.startDate} onChange={(e) => updateEducation(index, { startDate: e.target.value })} className={inputCls} placeholder="Start" />
+                                <input value={edu.endDate ?? ''} onChange={(e) => updateEducation(index, { endDate: e.target.value })} className={inputCls} placeholder="End" />
+                              </div>
+                            </div>
+                          ))}
+                          <button type="button" onClick={addEducation} className="text-xs text-purple-600 hover:underline flex items-center gap-1">
+                            <Plus size={14} /> Add education
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {parseWizardStep === 2 && (
+                    <div className="space-y-3">
+                      <Field label="Skills">
+                        <textarea value={skillsText} onChange={(e) => setSkillsText(e.target.value)} rows={2} className={inputCls} />
+                      </Field>
+                      <Field label="Languages">
+                        <textarea value={languagesText} onChange={(e) => setLanguagesText(e.target.value)} rows={2} className={inputCls} />
+                      </Field>
+                      <Field label="Technologies">
+                        <textarea value={technologiesText} onChange={(e) => setTechnologiesText(e.target.value)} rows={2} className={inputCls} />
+                      </Field>
+                      <Field label="Certifications">
+                        <textarea value={certificationsText} onChange={(e) => setCertificationsText(e.target.value)} rows={2} className={inputCls} placeholder="Name — Issuer — Year" />
+                      </Field>
+                      <Field label="Projects">
+                        <textarea value={projectsText} onChange={(e) => setProjectsText(e.target.value)} rows={3} className={inputCls} placeholder="Project title, then bullet lines" />
+                      </Field>
+                    </div>
+                  )}
+                </EditorInlineParseWizard>
+              ) : null
+            }
+            aiPanel={
+              <EditorAiPanel
+                loading={enhancing}
+                activeAction={aiActionId}
+                preview={enhancePreview}
+                onRun={runAiAction}
+                onApply={applyEnhancePreview}
+                onDiscard={() => setEnhancePreview(null)}
+                onUndo={undoEnhance}
+                canUndo={Boolean(undoSnapshot)}
+              />
+            }
+          />
+        }
+      />
       </div>
     </AppShell>
   );

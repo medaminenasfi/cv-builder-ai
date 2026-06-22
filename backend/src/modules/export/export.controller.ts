@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/auth.guards';
+import { DashboardStatsService } from '../dashboard/dashboard-stats.service';
 import { PreviewCVDto } from '../cvs/dto/cv.dto';
 import { UserEntity } from '../users/entities/user.entity';
 import { ExportService } from './export.service';
@@ -12,10 +13,14 @@ import { ExportService } from './export.service';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ExportController {
-  constructor(private readonly exportService: ExportService) {}
+  constructor(
+    private readonly exportService: ExportService,
+    private readonly dashboardStats: DashboardStatsService,
+  ) {}
 
   @Get(':id/export/html')
-  exportHtml(@Param('id') id: string, @CurrentUser() user: UserEntity) {
+  async exportHtml(@Param('id') id: string, @CurrentUser() user: UserEntity) {
+    await this.dashboardStats.logExport(user.id, id, 'html');
     return this.exportService.exportHtml(id, user.id);
   }
 
@@ -27,6 +32,7 @@ export class ExportController {
     @Res() res: Response,
   ) {
     const buffer = await this.exportService.exportPdf(id, user.id);
+    await this.dashboardStats.logExport(user.id, id, 'pdf');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="resume.pdf"');
     res.send(buffer);
@@ -46,6 +52,7 @@ export class ExportController {
     @Res() res: Response,
   ) {
     const buffer = await this.exportService.exportDocx(id, user.id);
+    await this.dashboardStats.logExport(user.id, id, 'docx');
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -68,6 +75,13 @@ export class ExportController {
 
   @Post(':id/preview')
   @ApiOperation({ summary: 'Live preview with draft CV data (editor)' })
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: false,
+      forbidNonWhitelisted: false,
+    }),
+  )
   previewDraft(
     @Param('id') id: string,
     @Body() dto: PreviewCVDto,
