@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl', 'modern-fr', 'jake-resume']);
+const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl', 'modern-fr', 'jake-resume', 'jake-resume-12pt']);
 
 function titleFromSlug(slug: string): string {
   return slug

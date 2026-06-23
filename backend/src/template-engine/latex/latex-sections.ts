@@ -72,10 +72,11 @@ function renderJakeExperience(data: CVData): string {
       const bullets = exp.bullets
         .map((b) => `      \\resumeItem{${escapeLatex(b)}}`)
         .join('\n');
-      return `  \\resumeSubheading{${escapeLatex(exp.role)}}{${dates}}{${escapeLatex(exp.company)}}{}
-    \\resumeItemListStart
-${bullets}
-    \\resumeItemListEnd`;
+      const bulletBlock =
+        bullets.length > 0
+          ? `\n    \\resumeItemListStart\n${bullets}\n    \\resumeItemListEnd`
+          : '';
+      return `  \\resumeSubheading{${escapeLatex(exp.role)}}{${dates}}{${escapeLatex(exp.company)}}{}${bulletBlock}`;
     })
     .join('\n\n');
   return `\\resumeSubHeadingListStart\n${items}\n\\resumeSubHeadingListEnd`;
@@ -187,7 +188,7 @@ function renderJakeCertifications(data: CVData): string {
     .map((c) => {
       const meta = [c.issuer, c.date].filter(Boolean).join(' · ');
       return meta
-        ? `  \\resumeItem{\\textbf{${escapeLatex(c.name)}} — ${escapeLatex(meta)}}`
+        ? `  \\resumeItem{\\textbf{${escapeLatex(c.name)}} -- ${escapeLatex(meta)}}`
         : `  \\resumeItem{\\textbf{${escapeLatex(c.name)}}}`;
     })
     .join('\n');
@@ -199,7 +200,7 @@ function renderSimpleCertifications(data: CVData): string {
     .map((c) => {
       const meta = [c.issuer, c.date].filter(Boolean).join(' · ');
       return meta
-        ? `\\textbf{${escapeLatex(c.name)}} — ${escapeLatex(meta)}`
+        ? `\\textbf{${escapeLatex(c.name)}} -- ${escapeLatex(meta)}`
         : `\\textbf{${escapeLatex(c.name)}}`;
     })
     .join('\n\n');
@@ -224,10 +225,11 @@ function renderJakeProjects(data: CVData): string {
           : p.description
             ? `      \\resumeItem{${escapeLatex(p.description)}}`
             : '';
-      return `  \\resumeProjectHeading{\\textbf{${escapeLatex(p.name)}}}{}
-    \\resumeProjectListStart
-${bullets}
-    \\resumeProjectListEnd`;
+      const bulletBlock =
+        bullets.length > 0
+          ? `\n    \\resumeProjectListStart\n${bullets}\n    \\resumeProjectListEnd`
+          : '';
+      return `  \\resumeProjectHeading{\\textbf{${escapeLatex(p.name)}}}{}${bulletBlock}`;
     })
     .join('\n\n');
   return `\\resumeSubHeadingListStart\n${items}\n\\resumeSubHeadingListEnd`;

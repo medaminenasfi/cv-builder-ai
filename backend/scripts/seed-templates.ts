@@ -8,7 +8,7 @@ import { RefreshTokenEntity } from '../src/modules/auth/entities/refresh-token.e
 
 config({ path: path.join(__dirname, '../.env') });
 
-const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl', 'modern-fr', 'jake-resume']);
+const RTL_SLUGS = new Set(['minimal', 'creative', 'arabic', 'rtl', 'modern-fr', 'jake-resume', 'jake-resume-12pt']);
 
 function titleFromSlug(slug: string): string {
   return slug

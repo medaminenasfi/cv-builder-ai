@@ -96,7 +96,7 @@ export function renderLatex(
   options: LatexRenderOptions = {},
 ): string {
   const locale = (options.locale ?? cvData.meta.locale ?? 'en') as string;
-  const source = latexSource.trim() || DEFAULT_LATEX;
+  const source = sanitizeLatexForTectonic((latexSource.trim() || DEFAULT_LATEX));
   const sectionStyle = detectLatexSectionStyle(source);
 
   let body = source

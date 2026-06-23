@@ -80,6 +80,10 @@ Located in `templates/*/main.tex`:
 - `modern-fr` — blue header, French
 - `classic` — traditional layout
 - `minimal` — compact single-column
+- `jake-resume` — Jake-style 9pt letter
+- `jake-resume-12pt` — Jake-style 12pt letter (English babel)
+
+See also: [Jake LaTeX conversion guide](JAKE-LATEX-CONVERSION-GUIDE.md) — convert hardcoded Jake `.tex` to placeholders + ChatGPT prompt.
 
 ## Troubleshooting
 
@@ -87,6 +91,8 @@ Located in `templates/*/main.tex`:
 |-------|-----|
 | LaTeX compiler offline | Run `docker compose up latex-sandbox` |
 | Package not found | Use packages from warmup list: `inputenc`, `fontenc`, `babel`, `geometry`, `hyperref`, `enumitem`, `xcolor` |
+| `Missing \begin{document}` at line 1 | Remove markdown fences (\`\`\`latex ... \`\`\`) from pasted template — or paste raw `.tex` only |
+| `sourcesanspro` not found | Not in Tectonic bundle — use `inputenc` + `T1` `fontenc` instead |
 | `\write18` rejected | Shell escape is blocked for security |
 | Slow preview | Normal — LaTeX takes 2–10s; editor debounces 1.5s |
 
