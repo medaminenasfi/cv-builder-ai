@@ -2,15 +2,13 @@
 
 import Link from 'next/link'
 import { CloudUpload, FileUp, Loader2, Sparkles, Briefcase, FileCheck } from 'lucide-react'
-import type { RefObject, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 interface EditorAiSidePanelProps {
   cvId: string
   importing: boolean
   importStep: string | null
-  fileInputRef: RefObject<HTMLInputElement | null>
   onImportClick: () => void
-  onFileSelect: (file: File | undefined) => void
   parseWizard: ReactNode | null
   aiPanel: ReactNode
 }
@@ -19,9 +17,7 @@ export function EditorAiSidePanel({
   cvId,
   importing,
   importStep,
-  fileInputRef,
   onImportClick,
-  onFileSelect,
   parseWizard,
   aiPanel,
 }: EditorAiSidePanelProps) {
@@ -79,13 +75,6 @@ export function EditorAiSidePanel({
             </>
           )}
         </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          className="hidden"
-          onChange={(e) => onFileSelect(e.target.files?.[0])}
-        />
       </div>
 
       <div>

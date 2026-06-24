@@ -188,18 +188,33 @@ export function exportCVDocxUrl(id: string) {
   );
 }
 
-export function previewCVPdf(
+/** Normalize PDF blob so browsers display inline instead of forcing a download. */
+export function pdfBlobToObjectUrl(blob: Blob): string {
+  const typed =
+    blob.type === 'application/pdf'
+      ? blob
+      : new Blob([blob], { type: 'application/pdf' });
+  return URL.createObjectURL(typed);
+}
+
+export async function previewCVPdf(
   id: string,
   payload?: { data?: Record<string, unknown>; templateId?: string | null },
-) {
-  return apiFetchBlob(`/cvs/${id}/preview.pdf`, {
+): Promise<Blob> {
+  const blob = await apiFetchBlob(`/cvs/${id}/preview.pdf`, {
     method: 'POST',
     body: JSON.stringify(payload ?? {}),
   });
+  return blob.type === 'application/pdf'
+    ? blob
+    : new Blob([blob], { type: 'application/pdf' });
 }
 
-export function previewCVSavedPdf(id: string) {
-  return apiFetchBlob(`/cvs/${id}/preview.pdf`);
+export async function previewCVSavedPdf(id: string): Promise<Blob> {
+  const blob = await apiFetchBlob(`/cvs/${id}/preview.pdf`);
+  return blob.type === 'application/pdf'
+    ? blob
+    : new Blob([blob], { type: 'application/pdf' });
 }
 
 export function shareCV(id: string) {

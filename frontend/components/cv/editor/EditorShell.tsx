@@ -15,6 +15,8 @@ interface EditorShellProps {
   manualPanel: ReactNode
   aiPanel: ReactNode
   preview: ReactNode
+  /** Hide Manual / AI toggle while the import review wizard is active */
+  hideModeSwitch?: boolean
 }
 
 export function EditorShell({
@@ -25,6 +27,7 @@ export function EditorShell({
   manualPanel,
   aiPanel,
   preview,
+  hideModeSwitch = false,
 }: EditorShellProps) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('panel')
 
@@ -58,7 +61,7 @@ export function EditorShell({
           }`}
         >
           <div className="lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:pr-1">
-            <EditorModeSwitch mode={mode} onChange={onModeChange} />
+            {!hideModeSwitch && <EditorModeSwitch mode={mode} onChange={onModeChange} />}
 
             {mode === 'manual' ? (
               <>

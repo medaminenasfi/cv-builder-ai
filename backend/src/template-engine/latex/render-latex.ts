@@ -1,7 +1,7 @@
 import type { CVData } from '../../common/cv-schema';
 import { SECTION_TITLES, sectionTitle } from '../section-titles';
 import { escapeLatex } from './latex-escape';
-import { sanitizeLatexForTectonic } from './latex-sanitize';
+import { prepareModerncvDocument, sanitizeLatexForTectonic } from './latex-sanitize';
 import {
   detectLatexSectionStyle,
   renderLatexCertifications,
@@ -12,6 +12,7 @@ import {
   renderLatexProjects,
   renderLatexSkills,
   renderLatexTechnologies,
+  renderModerncvPersonal,
 } from './latex-sections';
 
 export interface LatexRenderOptions {
@@ -116,6 +117,15 @@ export function renderLatex(
     .replace(/\{\{technologies\}\}/g, renderLatexTechnologies(cvData, sectionStyle))
     .replace(/\{\{certifications\}\}/g, renderLatexCertifications(cvData, sectionStyle))
     .replace(/\{\{projects\}\}/g, renderLatexProjects(cvData, sectionStyle));
+
+  const moderncvPersonal = renderModerncvPersonal(cvData);
+  if (sectionStyle === 'moderncv') {
+    body = body
+      .replace(/\{\{moderncvPersonal\}\}/g, moderncvPersonal)
+      .replace(/\{\{fullName\}\}/g, '')
+      .replace(/\{\{contactLine\}\}/g, '');
+    body = prepareModerncvDocument(body, moderncvPersonal);
+  }
 
   for (const key of Object.keys(SECTION_TITLES)) {
     body = body.replace(

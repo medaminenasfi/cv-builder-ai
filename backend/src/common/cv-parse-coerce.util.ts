@@ -90,7 +90,7 @@ function coerceExperienceEntry(raw: unknown) {
     role: pickString(e.role, e.position, e.jobTitle, e.title, e.job),
     startDate: pickString(e.startDate, e.start_date, e.start, e.from, e.dateStart),
     endDate:
-      endRaw && /^present$/i.test(endRaw) ? 'present' : endRaw || 'present',
+      endRaw && /^present$/i.test(endRaw) ? 'present' : endRaw || '',
     bullets: coerceBullets(e),
   };
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { previewCVPdf } from '@/lib/cvs-api';
+import { pdfBlobToObjectUrl, previewCVPdf } from '@/lib/cvs-api';
 import { ApiError } from '@/lib/api';
 import { Eye, Maximize2, RefreshCw } from 'lucide-react';
 
@@ -13,6 +13,9 @@ interface CVLivePreviewProps {
   templateName?: string;
 }
 
+/** Wait after last edit before compiling (LaTeX is slow). */
+const PREVIEW_DEBOUNCE_MS = 4000;
+
 function extractCompileLog(err: unknown): string {
   if (err instanceof ApiError && err.data && typeof err.data === 'object') {
     const d = err.data as { log?: string; message?: string | string[] };
@@ -22,6 +25,10 @@ function extractCompileLog(err: unknown): string {
   }
   if (err instanceof Error) return err.message;
   return 'Preview failed';
+}
+
+function revisionKey(templateId: string | null, dataRevision: string): string {
+  return `${templateId ?? ''}::${dataRevision}`;
 }
 
 export function CVLivePreview({
@@ -35,25 +42,39 @@ export function CVLivePreview({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [compileLog, setCompileLog] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
   const pdfUrlRef = useRef<string | null>(null);
+  const draftRef = useRef({ cvId, data, templateId });
+  const lastCompiledKeyRef = useRef<string | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const refresh = useCallback(() => {
+  draftRef.current = { cvId, data, templateId };
+
+  const runCompile = useCallback((force = false) => {
     if (!dataRevision || dataRevision === 'undefined') return;
+
+    const key = revisionKey(templateId, dataRevision);
+
+    if (!force && key === lastCompiledKeyRef.current) {
+      setLoading(false);
+      return;
+    }
 
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     setCompileLog(null);
 
-    previewCVPdf(cvId, { data, templateId })
+    const { cvId: id, data: draft, templateId: tpl } = draftRef.current;
+
+    previewCVPdf(id, { data: draft, templateId: tpl })
       .then((blob) => {
         if (requestId !== requestIdRef.current) return;
         if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
-        const url = URL.createObjectURL(blob);
+        const url = pdfBlobToObjectUrl(blob);
         pdfUrlRef.current = url;
         setPdfUrl(url);
+        lastCompiledKeyRef.current = key;
       })
       .catch((e) => {
         if (requestId !== requestIdRef.current) return;
@@ -66,12 +87,29 @@ export function CVLivePreview({
         if (requestId !== requestIdRef.current) return;
         setLoading(false);
       });
-  }, [cvId, data, dataRevision, templateId]);
+  }, [cvId, dataRevision, templateId]);
+
+  const scheduleCompile = useCallback(
+    (force = false) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      if (force) {
+        runCompile(true);
+        return;
+      }
+      debounceTimerRef.current = setTimeout(() => runCompile(false), PREVIEW_DEBOUNCE_MS);
+    },
+    [runCompile],
+  );
 
   useEffect(() => {
-    const timer = setTimeout(refresh, 1500);
-    return () => clearTimeout(timer);
-  }, [refresh]);
+    scheduleCompile(false);
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, [dataRevision, templateId, scheduleCompile]);
 
   useEffect(() => {
     return () => {
@@ -87,7 +125,7 @@ export function CVLivePreview({
           <div>
             <p className="text-sm font-medium text-gray-900">Live Preview (PDF)</p>
             <p className="text-[11px] text-gray-500">
-              {templateName ?? 'Default template'} · LaTeX compile
+              {templateName ?? 'Default template'} · LaTeX · updates ~4s after you stop typing
             </p>
           </div>
         </div>
@@ -97,7 +135,7 @@ export function CVLivePreview({
           )}
           <button
             type="button"
-            onClick={refresh}
+            onClick={() => scheduleCompile(true)}
             disabled={loading}
             className="flex items-center gap-1 text-[10px] text-purple-600 hover:underline disabled:opacity-50"
             title="Refresh preview"
@@ -116,10 +154,7 @@ export function CVLivePreview({
         </div>
       </div>
 
-      <div
-        ref={containerRef}
-        className="flex-1 relative bg-slate-200 min-h-0 overflow-auto flex flex-col items-center justify-start p-4"
-      >
+      <div className="flex-1 relative bg-slate-200 min-h-0 overflow-auto flex flex-col items-center justify-start p-4">
         {error && (
           <div className="w-full max-w-lg p-3 mb-2 text-center text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg whitespace-pre-wrap">
             {compileLog ?? error}
@@ -127,13 +162,14 @@ export function CVLivePreview({
         )}
         {!error && !pdfUrl && loading && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
-            Compiling PDF preview…
+            Compiling PDF preview (LaTeX may take 15–30s)…
           </div>
         )}
         {pdfUrl && (
-          <iframe
+          <embed
             title="CV PDF preview"
-            src={pdfUrl}
+            src={`${pdfUrl}#toolbar=0&navpanes=0`}
+            type="application/pdf"
             className="w-full flex-1 min-h-[500px] border-0 bg-white shadow-lg rounded"
           />
         )}

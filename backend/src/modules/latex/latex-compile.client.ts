@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
   BadRequestException,
   Injectable,
@@ -22,6 +23,9 @@ export class LatexCompileClient implements OnModuleInit {
   private readonly logger = new Logger(LatexCompileClient.name);
   private sandboxUrl: string;
   private timeoutMs: number;
+  private readonly compileCache = new Map<string, { pdf: Buffer; at: number }>();
+  private readonly cacheTtlMs = 10 * 60 * 1000;
+  private readonly cacheMaxEntries = 64;
 
   constructor(private readonly config: ConfigService) {
     this.sandboxUrl =
@@ -61,7 +65,35 @@ export class LatexCompileClient implements OnModuleInit {
     }
   }
 
+  private cacheKey(tex: string): string {
+    return createHash('sha256').update(tex).digest('hex');
+  }
+
+  private readCache(key: string): Buffer | null {
+    const hit = this.compileCache.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.at > this.cacheTtlMs) {
+      this.compileCache.delete(key);
+      return null;
+    }
+    return hit.pdf;
+  }
+
+  private writeCache(key: string, pdf: Buffer): void {
+    if (this.compileCache.size >= this.cacheMaxEntries) {
+      const oldest = [...this.compileCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) this.compileCache.delete(oldest[0]);
+    }
+    this.compileCache.set(key, { pdf, at: Date.now() });
+  }
+
   async compile(tex: string): Promise<LatexCompileSuccess> {
+    const key = this.cacheKey(tex);
+    const cached = this.readCache(key);
+    if (cached) {
+      return { pdf: cached };
+    }
+
     let res: Response;
     try {
       res = await fetch(`${this.sandboxUrl}/compile`, {
@@ -109,6 +141,7 @@ export class LatexCompileClient implements OnModuleInit {
       throw new ServiceUnavailableException('LaTeX compiler returned invalid PDF');
     }
 
+    this.writeCache(key, pdf);
     return { pdf };
   }
 }

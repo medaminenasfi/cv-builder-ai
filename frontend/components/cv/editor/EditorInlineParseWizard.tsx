@@ -3,7 +3,13 @@
 import type { ParseMeta } from '@/lib/cvs-api'
 import { ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
 
-const WIZARD_STEPS = ['Contact', 'Career', 'Skills & more'] as const
+const WIZARD_STEPS = ['Profile', 'Work history', 'Skills & extras'] as const
+
+const STEP_HINTS = [
+  'Name, contact details, and resume title. Check the live preview on the right.',
+  'Summary, jobs, and education. Fix dates and bullet points here.',
+  'Skills, languages, certifications, and projects. Remove duplicates between fields.',
+] as const
 
 export interface ParseImportStats {
   experienceCount: number
@@ -49,7 +55,10 @@ export function EditorInlineParseWizard({
     <div className="bg-white border border-purple-100 rounded-2xl overflow-hidden shadow-sm">
       <div className="px-4 py-3 border-b border-purple-100 bg-gradient-to-r from-purple-50 to-white">
         <div className="flex items-center justify-between gap-2 mb-2">
-          <h3 className="text-sm font-semibold text-gray-900">Review imported data</h3>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Review imported CV</h3>
+            <p className="text-[10px] text-gray-500 mt-0.5">Step {step + 1} of {WIZARD_STEPS.length} — {STEP_HINTS[step]}</p>
+          </div>
           {parseMeta && (
             <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
               {parseMeta.overall}% · {QUALITY[parseMeta.qualityLabel] ?? 'Parsed'}
@@ -80,18 +89,24 @@ export function EditorInlineParseWizard({
       </div>
 
       {importStats && (
-        <div className="mx-4 mt-3 grid grid-cols-2 gap-2 text-[11px]">
+        <div className="mx-4 mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
           <div className={`rounded-lg px-2 py-1.5 border ${importStats.hasLocation ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
-            Location {importStats.hasLocation ? '✓' : '— add in Contact'}
+            Location {importStats.hasLocation ? '✓' : '— step 1'}
           </div>
           <div className={`rounded-lg px-2 py-1.5 border ${importStats.hasSummary ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
-            Summary {importStats.hasSummary ? '✓' : '— add in Career'}
+            Summary {importStats.hasSummary ? '✓' : '— step 2'}
           </div>
           <div className={`rounded-lg px-2 py-1.5 border ${importStats.experienceCount > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
             {importStats.experienceCount} job{importStats.experienceCount === 1 ? '' : 's'}
           </div>
           <div className={`rounded-lg px-2 py-1.5 border ${importStats.educationCount > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
             {importStats.educationCount} education
+          </div>
+          <div className={`rounded-lg px-2 py-1.5 border ${importStats.skillsCount > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+            {importStats.skillsCount} skill{importStats.skillsCount === 1 ? '' : 's'}
+          </div>
+          <div className={`rounded-lg px-2 py-1.5 border ${importStats.languagesCount > 0 ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
+            {importStats.languagesCount} language{importStats.languagesCount === 1 ? '' : 's'}
           </div>
         </div>
       )}
@@ -108,7 +123,7 @@ export function EditorInlineParseWizard({
 
       <div className="px-4 py-3 border-t border-purple-100 flex items-center justify-between gap-2 bg-gray-50/50">
         <button type="button" onClick={onCancel} className="text-xs text-gray-500 hover:text-gray-800">
-          Skip — edit manually
+          Skip review — use full editor
         </button>
         <div className="flex gap-2">
           <button

@@ -1,7 +1,7 @@
 'use client';
 
 import { AppShell } from '@/components/layout/AppShell';
-import { exportCVPdf, getCV, previewCVSavedPdf } from '@/lib/cvs-api';
+import { exportCVPdf, getCV, pdfBlobToObjectUrl, previewCVSavedPdf } from '@/lib/cvs-api';
 import { ApiError } from '@/lib/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -27,7 +27,7 @@ export default function CVPreviewPage() {
       setTitle(cv.title);
       const blob = await previewCVSavedPdf(id);
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      const url = URL.createObjectURL(blob);
+      const url = pdfBlobToObjectUrl(blob);
       urlRef.current = url;
       setPdfUrl(url);
     } catch (e) {

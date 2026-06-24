@@ -32,6 +32,7 @@ export default function NewCVPage() {
       const result = await importCVFile(file)
       if (result.parseMeta) {
         sessionStorage.setItem(`parseMeta-${result.cvId}`, JSON.stringify(result.parseMeta))
+        sessionStorage.setItem(`parsePending-${result.cvId}`, '1')
       }
       router.push(`/cv/${result.cvId}/edit?parse=1`)
     } catch (e) {

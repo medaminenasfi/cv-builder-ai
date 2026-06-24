@@ -5,7 +5,10 @@ export function parseAiJson<T>(raw: string): T {
   const candidates = [
     extracted,
     removeTrailingCommas(extracted),
+    fixEmptyJsonFieldValues(extracted),
+    removeTrailingCommas(fixEmptyJsonFieldValues(extracted)),
     removeTrailingCommas(repairTruncatedJson(extracted)),
+    removeTrailingCommas(fixEmptyJsonFieldValues(repairTruncatedJson(extracted))),
   ];
 
   let lastError: unknown;
@@ -59,6 +62,13 @@ function extractJsonObject(text: string): string {
 
 function removeTrailingCommas(json: string): string {
   return json.replace(/,\s*([}\]])/g, '$1');
+}
+
+function fixEmptyJsonFieldValues(json: string): string {
+  return json.replace(
+    /"(level|issuer|date|description|website|phone|location|linkedin|company|role|startDate|endDate)"\s*:\s*(?=[}\],])/g,
+    '"$1":""',
+  );
 }
 
 function repairTruncatedJson(json: string): string {

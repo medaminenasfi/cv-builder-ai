@@ -118,11 +118,11 @@ export function extractContactHints(text: string): ContactHints {
 
 /** Common section boundary headers (EN / FR / AR) for regex lookahead. */
 export const SECTION_BOUNDARY =
-  'expérience|experience|formation|education|langues|languages|compétences|competences|skills|technologies|projets|projects|certifications|الخبرة|الخبرات|التعليم|اللغات|المهارات|التقنيات|الأدوات|المشاريع';
+  'profil|profile|expérience|experience|formation|education|langues|languages|compétences|competences|skills|technologies|projets|projects|certifications|الخبرة|الخبرات|التعليم|اللغات|المهارات|التقنيات|الأدوات|المشاريع';
 
 /** Next-section headers when scanning line-by-line (exclude generic "experience" — too broad). */
 const SECTION_LINE_END =
-  'formation|education|études|studies|diplômes|diplomes|langues|languages|compétences|competences|skills|technologies|projets|projects|certifications|التعليم|اللغات|المهارات';
+  'expérience|experience|formation|education|études|studies|diplômes|diplomes|langues|languages|compétences techniques|compétences|competences|skills|technologies|projets|projects|certifications|profil|profile|التعليم|اللغات|المهارات';
 
 function extractSectionBlockByLines(
   text: string,
@@ -162,23 +162,21 @@ export function extractSectionBlock(
   headerPattern: RegExp,
   maxLen = 1200,
 ): string | undefined {
+  const fromLines = extractSectionBlockByLines(text, headerPattern, maxLen);
+  if (fromLines) return fromLines;
+
   const headerSource = headerPattern.source.startsWith('(?:')
     ? headerPattern.source
     : `(?:${headerPattern.source})`;
+  const flags = headerPattern.flags.includes('i') ? 'im' : 'm';
   const match = text.match(
     new RegExp(
-      headerSource +
-        '\\s*[\\n:]\\s*([\\s\\S]{5,' +
-        maxLen +
-        '}?)(?=\\n\\s*(?:' +
-        SECTION_BOUNDARY +
-        '|$))',
-      headerPattern.flags.includes('i') ? 'i' : undefined,
+      `(?:^|\\n)\\s*${headerSource}\\s*(?:\\n|:)\\s*([\\s\\S]{5,${maxLen}}?)(?=\\n\\s*(?:${SECTION_BOUNDARY})\\s*(?:\\n|:)|$)`,
+      flags,
     ),
   );
   const fromRegex = match?.[1]?.trim();
-  if (fromRegex) return fromRegex;
-  return extractSectionBlockByLines(text, headerPattern, maxLen);
+  return fromRegex && fromRegex.length >= 5 ? fromRegex : undefined;
 }
 
 function parseListFromBlock(block: string): string[] {
@@ -198,6 +196,10 @@ export function extractLanguagesFromText(text: string): Array<{ name: string; le
     .map((entry) => {
       const dash = entry.match(/^(.+?)\s*[—–-]\s*(.+)$/);
       if (dash) return { name: dash[1].trim(), level: dash[2].trim() };
+      const prof = entry.match(
+        /^(.+?)\s+(Professionnel(?:le)?|Courant|Native|Natif|Bilingue|Intermédiaire|Avancé|Langue maternelle|Fluent|C\d)$/i,
+      );
+      if (prof) return { name: prof[1].trim(), level: prof[2].trim() };
       const paren = entry.match(/^(.+?)\s*\(([^)]+)\)$/);
       if (paren) return { name: paren[1].trim(), level: paren[2].trim() };
       return { name: entry };
@@ -212,7 +214,18 @@ export function extractTechnologiesFromText(text: string): string[] {
       /compétences techniques|competences techniques|technologies|technical skills|stack|outils|tools|التقنيات|الأدوات/i,
     ) ?? extractSectionBlock(text, /compétences|competences|skills|المهارات/i);
   if (!block) return [];
-  return parseListFromBlock(block);
+  const names = new Set<string>();
+  for (const line of block.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || /^langues?\b/i.test(trimmed)) continue;
+    const labeled = trimmed.match(/^[^:]+:\s*(.+)$/);
+    const payload = labeled ? labeled[1] : trimmed;
+    for (const part of payload.split(/[,;|•·]/)) {
+      const name = part.trim();
+      if (name.length >= 2 && name.length <= 50) names.add(name);
+    }
+  }
+  return [...names].slice(0, 40);
 }
 
 export function extractSkillsFromText(text: string): string[] {
@@ -234,18 +247,37 @@ const DATE_RANGE_RE = new RegExp(
   'i',
 );
 
+/** Role + date range on one line (common in FR PDFs): "Développeur Full-Stack Janvier 2026 – Présent" */
+const ROLE_WITH_DATES_RE = new RegExp(
+  `^(.+?)\\s+((${MONTH_TOKEN})\\s+\\d{4}|\\d{1,2}/\\d{4}|\\d{4})\\s*[-–—]\\s*(Aujourd'hui|Today|Present|Présent|presént|(?:${MONTH_TOKEN})\\s+\\d{4}|\\d{1,2}/\\d{4}|\\d{4})$`,
+  'i',
+);
+
 const LINE_START_DATE_RE = new RegExp(
   `^(?:(?:${MONTH_TOKEN})[a-zéû.\\s]*)?\\d{4}\\s*[-–—]|^\\d{1,2}\\/\\d{4}\\s*[-–—]`,
   'im',
 );
 
+function normalizeEndDate(endRaw: string): string {
+  return /aujourd|present|présent|today|now|الآن/i.test(endRaw.trim()) ? 'present' : endRaw.trim();
+}
+
+function parseRoleDateLine(line: string): { role: string; startDate: string; endDate: string } | null {
+  const m = line.match(ROLE_WITH_DATES_RE);
+  if (!m) return null;
+  return {
+    role: m[1].trim(),
+    startDate: m[2].trim(),
+    endDate: normalizeEndDate(m[4] ?? m[3] ?? ''),
+  };
+}
+
 function parseDateRange(line: string): { startDate: string; endDate: string } | null {
+  const roleDate = parseRoleDateLine(line);
+  if (roleDate) return { startDate: roleDate.startDate, endDate: roleDate.endDate };
   const m = line.match(DATE_RANGE_RE);
   if (!m) return null;
-  const startDate = m[1].trim();
-  const endRaw = m[2].trim();
-  const endDate = /aujourd|present|présent|today|now|الآن/i.test(endRaw) ? 'present' : endRaw;
-  return { startDate, endDate };
+  return { startDate: m[1].trim(), endDate: normalizeEndDate(m[2]) };
 }
 
 function splitRoleCompany(line: string): { role: string; company: string } {
@@ -267,6 +299,36 @@ function parseExperienceParagraph(paragraph: string): {
 } | null {
   const lines = paragraph.split('\n').map((l) => l.trim()).filter(Boolean);
   if (lines.length < 1) return null;
+
+  const roleDateFirst = parseRoleDateLine(lines[0]);
+  if (roleDateFirst) {
+    let company = '';
+    const bullets: string[] = [];
+    let bodyStart = 1;
+    if (
+      lines.length > 1 &&
+      !parseRoleDateLine(lines[1]) &&
+      !/^technologies?\s*:/i.test(lines[1]) &&
+      lines[1].length <= 120
+    ) {
+      company = lines[1];
+      bodyStart = 2;
+    }
+    for (const line of lines.slice(bodyStart)) {
+      if (parseRoleDateLine(line)) break;
+      if (/^technologies?\s*:/i.test(line)) continue;
+      if (/^[-•*▪·]\s*/.test(line) || line.length > 12) {
+        bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
+      }
+    }
+    return {
+      company: company.slice(0, 120),
+      role: roleDateFirst.role.slice(0, 120),
+      startDate: roleDateFirst.startDate,
+      endDate: roleDateFirst.endDate,
+      bullets: bullets.slice(0, 8),
+    };
+  }
 
   const dateIdx = lines.findIndex((l) => DATE_RANGE_RE.test(l) || LINE_START_DATE_RE.test(l));
   let startDate = '';
@@ -301,6 +363,7 @@ function parseExperienceParagraph(paragraph: string): {
     }
 
     for (const line of bodyLines) {
+      if (/^technologies?\s*:/i.test(line)) continue;
       if (/^[-•*▪·]\s*/.test(line) || line.length > 15) {
         bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
       }
@@ -334,16 +397,23 @@ function experienceKey(item: {
   return `${item.role}|${item.company}|${item.startDate}`.toLowerCase().trim();
 }
 
-/** Scan date lines and pair with preceding role/company — works for PDF single-line layouts. */
+/** Scan job header lines (role + dates) and pair with company + bullets — FR PDF layout. */
 function extractExperienceByDateScan(
   block: string,
 ): Array<{ company: string; role: string; startDate: string; endDate: string; bullets: string[] }> {
   const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
-  const dateIndices: number[] = [];
+  const headerIndices: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (DATE_RANGE_RE.test(lines[i])) dateIndices.push(i);
+    if (parseRoleDateLine(lines[i])) headerIndices.push(i);
   }
-  if (dateIndices.length === 0) return [];
+  if (headerIndices.length === 0) {
+    for (let i = 0; i < lines.length; i++) {
+      if (DATE_RANGE_RE.test(lines[i]) && !/^technologies?\s*:/i.test(lines[i])) {
+        headerIndices.push(i);
+      }
+    }
+  }
+  if (headerIndices.length === 0) return [];
 
   const results: Array<{
     company: string;
@@ -353,36 +423,57 @@ function extractExperienceByDateScan(
     bullets: string[];
   }> = [];
 
-  for (let di = 0; di < dateIndices.length; di++) {
-    const dateIdx = dateIndices[di];
-    const nextDateIdx = dateIndices[di + 1] ?? lines.length;
-    const parsed = parseDateRange(lines[dateIdx]);
+  for (let hi = 0; hi < headerIndices.length; hi++) {
+    const dateIdx = headerIndices[hi];
+    const nextHeader = headerIndices[hi + 1] ?? lines.length;
+    const parsedRoleDate = parseRoleDateLine(lines[dateIdx]);
+    const parsed = parsedRoleDate ?? parseDateRange(lines[dateIdx]);
     const startDate = parsed?.startDate ?? '';
     const endDate = parsed?.endDate ?? 'present';
 
-    const before: string[] = [];
-    const prevDateIdx = di > 0 ? dateIndices[di - 1] : -1;
-    for (let i = dateIdx - 1; i > prevDateIdx && before.length < 2; i--) {
-      const line = lines[i];
-      if (/^[-•*▪·]\s*/.test(line) || DATE_RANGE_RE.test(line)) continue;
-      before.unshift(line);
-    }
-
-    let role = '';
+    let role = parsedRoleDate?.role ?? '';
     let company = '';
-    if (before.length >= 2) {
-      role = before[before.length - 2];
-      company = before[before.length - 1];
-    } else if (before.length === 1) {
-      const rc = splitRoleCompany(before[0]);
-      role = rc.role;
-      company = rc.company;
+    let bulletStart = dateIdx + 1;
+
+    if (!role) {
+      const before: string[] = [];
+      const prevHeader = hi > 0 ? headerIndices[hi - 1] : -1;
+      for (let i = dateIdx - 1; i > prevHeader && before.length < 2; i--) {
+        const line = lines[i];
+        if (/^[-•*▪·]\s*/.test(line) || DATE_RANGE_RE.test(line)) continue;
+        before.unshift(line);
+      }
+      if (before.length >= 2) {
+        role = before[before.length - 2];
+        company = before[before.length - 1];
+      } else if (before.length === 1) {
+        const rc = splitRoleCompany(before[0]);
+        role = rc.role;
+        company = rc.company;
+      } else {
+        const restOnDateLine = lines[dateIdx].replace(DATE_RANGE_RE, '').trim();
+        if (restOnDateLine) {
+          const rc = splitRoleCompany(restOnDateLine);
+          role = rc.role;
+          company = rc.company;
+        }
+      }
+      bulletStart = dateIdx + 1;
+    } else if (
+      dateIdx + 1 < nextHeader &&
+      !parseRoleDateLine(lines[dateIdx + 1]) &&
+      !/^technologies?\s*:/i.test(lines[dateIdx + 1]) &&
+      lines[dateIdx + 1].length <= 120
+    ) {
+      company = lines[dateIdx + 1];
+      bulletStart = dateIdx + 2;
     }
 
     const bullets: string[] = [];
-    for (let i = dateIdx + 1; i < nextDateIdx; i++) {
+    for (let i = bulletStart; i < nextHeader; i++) {
       const line = lines[i];
-      if (DATE_RANGE_RE.test(line)) break;
+      if (parseRoleDateLine(line) || DATE_RANGE_RE.test(line)) break;
+      if (/^technologies?\s*:/i.test(line)) continue;
       if (/^[-•*▪·]\s*/.test(line) || line.length > 12) {
         bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
       }
@@ -516,6 +607,24 @@ export function extractEducationFromText(
   const paragraphs = block.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 6);
   for (const para of paragraphs) {
     const lines = para.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length >= 2 && !DATE_RANGE_RE.test(lines[0])) {
+      const last = lines[lines.length - 1];
+      const trailingDates = last.match(
+        new RegExp(`\\s+((${YEAR_TOKEN})\\s*[-–—]\\s*(?:${YEAR_TOKEN}|Present|Présent))\\s*$`, 'i'),
+      );
+      if (trailingDates) {
+        const parsed = parseDateRange(trailingDates[1].trim());
+        const degree = last.replace(trailingDates[0], '').trim();
+        pushEdu({
+          institution: lines[0],
+          degree,
+          startDate: parsed?.startDate ?? '',
+          endDate: parsed?.endDate ?? '',
+        });
+        continue;
+      }
+    }
+
     const dateIdx = lines.findIndex((l) => DATE_RANGE_RE.test(l) || LINE_START_DATE_RE.test(l));
     if (dateIdx >= 0) {
       const parsed = parseDateRange(lines[dateIdx]);
@@ -701,6 +810,56 @@ function mergeEducationEntries(
   return out;
 }
 
+export function extractProjectsFromText(
+  text: string,
+): Array<{ name: string; description?: string; bullets: string[] }> {
+  const block = extractSectionBlock(text, /projets|projects|المراجع/i, 6000);
+  if (!block) return [];
+
+  const projects: Array<{ name: string; description?: string; bullets: string[] }> = [];
+  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+  let current: { name: string; description?: string; bullets: string[] } | null = null;
+
+  const flush = () => {
+    if (current?.name) projects.push(current);
+    current = null;
+  };
+
+  for (const line of lines) {
+    if (/^(?:compétences techniques|compétences|langues|certifications)\b/i.test(line)) break;
+
+    const looksLikeHeader =
+      line.length >= 15 &&
+      line.length <= 200 &&
+      !/^[-•*▪·]\s*/.test(line) &&
+      (/\|\s*\w/.test(line) ||
+        /\(Freelance\)/i.test(line) ||
+        /\(Projet de Fin/i.test(line) ||
+        /Projet de Fin d['']Études/i.test(line));
+
+    if (looksLikeHeader) {
+      flush();
+      const pipeParts = line.split(/\s*\|\s*/);
+      const headerPart = pipeParts[0].trim();
+      const techStack = pipeParts.slice(1).join(' | ').trim();
+      const dashParts = headerPart.match(/^(.+?)\s*[—–-]\s*(.+)$/);
+      const name = dashParts ? dashParts[1].trim() : headerPart;
+      const description = [dashParts?.[2]?.trim(), techStack].filter(Boolean).join(' | ') || undefined;
+      current = { name, description, bullets: [] };
+      continue;
+    }
+
+    if (!current) continue;
+    if (/^[-•*▪·]\s*/.test(line) || line.length > 20) {
+      current.bullets.push(line.replace(/^[-•*▪·]\s*/, '').trim());
+    } else if (!current.description && line.length > 15) {
+      current.description = line;
+    }
+  }
+  flush();
+  return projects.slice(0, 10);
+}
+
 /** Keep start (contact) + end (skills/education) when text is long. */
 export function buildParseTextPayload(rawText: string, maxLen = 14000): string {
   const cleaned = cleanResumeText(rawText);
@@ -774,5 +933,17 @@ export function enrichCVFromRawText(data: CVData, rawText: string): CVData {
 
   let education = mergeEducationEntries(data.education, extractEducationFromText(rawText));
 
-  return { ...data, personal, summary, skills, languages, technologies, experience, education };
+  let projects = [...data.projects];
+  if (projects.length < 1) {
+    for (const p of extractProjectsFromText(rawText)) {
+      projects.push({
+        id: newCvId(),
+        name: p.name,
+        description: p.description,
+        bullets: p.bullets.slice(0, 6),
+      });
+    }
+  }
+
+  return { ...data, personal, summary, skills, languages, technologies, experience, education, projects };
 }

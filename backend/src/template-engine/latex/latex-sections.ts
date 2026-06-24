@@ -8,7 +8,7 @@ function latexDateRange(start: string, end?: string | 'present'): string {
   return `${startEsc} -- ${escapeLatex(endLabel)}`;
 }
 
-export type LatexSectionStyle = 'simple' | 'jake';
+export type LatexSectionStyle = 'simple' | 'jake' | 'moderncv';
 
 /** Header contact: phone | email | LinkedIn | Portfolio (Jake-style) */
 export function renderLatexContactLine(data: CVData): string {
@@ -31,6 +31,108 @@ export function renderLatexContactLine(data: CVData): string {
     );
   }
   return parts.join(' $\\quad|\\quad$ ');
+}
+
+function renderModerncvExperience(data: CVData): string {
+  if (!data.experience.length) return '';
+  return data.experience
+    .map((exp) => {
+      const dates = latexDateRange(exp.startDate, exp.endDate);
+      const loc = escapeLatex(data.personal.location ?? '');
+      const bullets = exp.bullets
+        .map((b) => `\\item ${escapeLatex(b)}`)
+        .join('\n');
+      const detail =
+        bullets.length > 0
+          ? `\\begin{itemize}[leftmargin=0.15in, label=\\textbullet, itemsep=0pt, topsep=2pt]\\footnotesize\n${bullets}\n\\end{itemize}`
+          : '';
+      return `\\cventry{${dates}}{${escapeLatex(exp.company)}}{${escapeLatex(exp.role)}}{${loc}}{}{${detail}}`;
+    })
+    .join('\n\n');
+}
+
+function renderModerncvEducation(data: CVData): string {
+  if (!data.education.length) return '';
+  return data.education
+    .map((edu) => {
+      const dates = latexDateRange(edu.startDate, edu.endDate);
+      const loc = escapeLatex(data.personal.location ?? '');
+      return `\\cventry{${dates}}{${escapeLatex(edu.institution)}}{${escapeLatex(edu.degree)}}{${loc}}{}{}`;
+    })
+    .join('\n\n');
+}
+
+function renderModerncvSkills(data: CVData): string {
+  const lines: string[] = [];
+  if (data.skills.length) {
+    lines.push(
+      `\\textbf{Compétences :} ${data.skills.map((s) => escapeLatex(s.name)).join(', ')}.`,
+    );
+  }
+  if (data.technologies.length) {
+    lines.push(
+      `\\textbf{Technologies :} ${data.technologies.map((t) => escapeLatex(t.name)).join(', ')}.`,
+    );
+  }
+  return lines.join('\n\n');
+}
+
+function renderModerncvProjects(data: CVData): string {
+  if (!data.projects.length) return '';
+  return data.projects
+    .map((p) => {
+      const desc = p.description ? escapeLatex(p.description) : '';
+      const bullets = (p.bullets ?? [])
+        .map((b) => `\\item ${escapeLatex(b)}`)
+        .join('\n');
+      const detail =
+        bullets.length > 0
+          ? `\\begin{itemize}[leftmargin=0.15in, label=\\textbullet, itemsep=0pt]\\footnotesize\n${bullets}\n\\end{itemize}`
+          : desc;
+      return `\\cventry{}{}{${escapeLatex(p.name)}}{}{}{${detail}}`;
+    })
+    .join('\n\n');
+}
+
+function renderModerncvLanguages(data: CVData): string {
+  if (!data.languages.length) return '';
+  return data.languages
+    .map((l) => {
+      const level = escapeLatex(l.level ?? '');
+      return `\\cvitem{${escapeLatex(l.name)}}{${level}}`;
+    })
+    .join('\n');
+}
+
+/** moderncv: \name, \email, etc. must appear before \\begin{document} */
+export function renderModerncvPersonal(data: CVData): string {
+  const { personal } = data;
+  const full = personal.fullName.trim();
+  const split = full.lastIndexOf(' ');
+  const firstName = split > 0 ? full.slice(0, split) : full;
+  const lastName = split > 0 ? full.slice(split + 1) : '';
+  const lines: string[] = [
+    `\\name{${escapeLatex(firstName)}}{${escapeLatex(lastName)}}`,
+  ];
+  if (personal.title?.trim()) {
+    lines.push(`\\title{${escapeLatex(personal.title)}}`);
+  }
+  if (personal.location?.trim()) {
+    lines.push(`\\address{${escapeLatex(personal.location)}}{}{}`);
+  }
+  if (personal.phone?.trim()) {
+    lines.push(`\\phone{${escapeLatex(personal.phone)}}`);
+  }
+  if (personal.email?.trim()) {
+    lines.push(`\\email{${escapeLatex(personal.email)}}`);
+  }
+  if (personal.linkedin?.trim()) {
+    lines.push(`\\social[linkedin]{${escapeLatex(personal.linkedin)}}`);
+  }
+  if (personal.website?.trim()) {
+    lines.push(`\\extrainfo{${escapeLatex(personal.website)}}`);
+  }
+  return lines.join('\n');
 }
 
 function renderJakeEducation(data: CVData): string {
@@ -59,9 +161,9 @@ export function renderLatexEducation(
   data: CVData,
   style: LatexSectionStyle = 'simple',
 ): string {
-  return style === 'jake'
-    ? renderJakeEducation(data)
-    : renderSimpleEducation(data);
+  if (style === 'jake') return renderJakeEducation(data);
+  if (style === 'moderncv') return renderModerncvEducation(data);
+  return renderSimpleEducation(data);
 }
 
 function renderJakeExperience(data: CVData): string {
@@ -103,9 +205,9 @@ export function renderLatexExperience(
   data: CVData,
   style: LatexSectionStyle = 'simple',
 ): string {
-  return style === 'jake'
-    ? renderJakeExperience(data)
-    : renderSimpleExperience(data);
+  if (style === 'jake') return renderJakeExperience(data);
+  if (style === 'moderncv') return renderModerncvExperience(data);
+  return renderSimpleExperience(data);
 }
 
 function renderJakeSkills(data: CVData): string {
@@ -131,7 +233,9 @@ export function renderLatexSkills(
   data: CVData,
   style: LatexSectionStyle = 'simple',
 ): string {
-  return style === 'jake' ? renderJakeSkills(data) : renderSimpleSkills(data);
+  if (style === 'jake') return renderJakeSkills(data);
+  if (style === 'moderncv') return renderModerncvSkills(data);
+  return renderSimpleSkills(data);
 }
 
 function renderJakeTechnologies(_data: CVData): string {
@@ -147,9 +251,9 @@ export function renderLatexTechnologies(
   data: CVData,
   style: LatexSectionStyle = 'simple',
 ): string {
-  return style === 'jake'
-    ? renderJakeTechnologies(data)
-    : renderSimpleTechnologies(data);
+  if (style === 'jake') return renderJakeTechnologies(data);
+  if (style === 'moderncv') return '';
+  return renderSimpleTechnologies(data);
 }
 
 function renderJakeLanguages(data: CVData): string {
@@ -177,9 +281,9 @@ export function renderLatexLanguages(
   data: CVData,
   style: LatexSectionStyle = 'simple',
 ): string {
-  return style === 'jake'
-    ? renderJakeLanguages(data)
-    : renderSimpleLanguages(data);
+  if (style === 'jake') return renderJakeLanguages(data);
+  if (style === 'moderncv') return renderModerncvLanguages(data);
+  return renderSimpleLanguages(data);
 }
 
 function renderJakeCertifications(data: CVData): string {
@@ -258,11 +362,13 @@ export function renderLatexProjects(
   data: CVData,
   style: LatexSectionStyle = 'simple',
 ): string {
-  return style === 'jake'
-    ? renderJakeProjects(data)
-    : renderSimpleProjects(data);
+  if (style === 'jake') return renderJakeProjects(data);
+  if (style === 'moderncv') return renderModerncvProjects(data);
+  return renderSimpleProjects(data);
 }
 
 export function detectLatexSectionStyle(latexSource: string): LatexSectionStyle {
-  return /\\newcommand\{\\resumeSubheading\}/.test(latexSource) ? 'jake' : 'simple';
+  if (/\\documentclass[^\n]*\{moderncv\}/.test(latexSource)) return 'moderncv';
+  if (/\\newcommand\{\\resumeSubheading\}/.test(latexSource)) return 'jake';
+  return 'simple';
 }

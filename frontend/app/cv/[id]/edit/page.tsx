@@ -22,6 +22,8 @@ import {
   applyEnhancement,
   enhanceCV,
   exportCVPdf,
+  pdfBlobToObjectUrl,
+  previewCVSavedPdf,
   getCV,
   importCVFileIntoExisting,
   updateCV,
@@ -35,7 +37,7 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import dynamic from 'next/dynamic';
-import { Plus, Trash2, Save, Download, ChevronDown, Briefcase, Eye, Printer } from 'lucide-react';
+import { Plus, Trash2, Save, Download, ChevronDown, Briefcase, Eye, Printer, FileUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { EditorShell } from '@/components/cv/editor/EditorShell';
 import { EditorHeader } from '@/components/cv/editor/EditorHeader';
@@ -99,6 +101,18 @@ function Field({
 
 const inputCls =
   'w-full border border-purple-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200';
+
+function clearParseReviewSession(cvId: string) {
+  sessionStorage.removeItem(`parseMeta-${cvId}`);
+  sessionStorage.removeItem(`parsePending-${cvId}`);
+}
+
+function dismissParseQuery(router: ReturnType<typeof useRouter>, cvId: string) {
+  if (typeof window === 'undefined') return;
+  if (window.location.search.includes('parse=1')) {
+    router.replace(`/cv/${cvId}/edit`, { scroll: false });
+  }
+}
 
 export default function CVEditorPageWrapper() {
   return (
@@ -206,21 +220,28 @@ function CVEditorPage() {
   }, [load]);
 
   useEffect(() => {
-    if (searchParams.get('ai') === '1' && !loading) {
+    if (searchParams.get('ai') === '1' && !loading && !parseWizardOpen) {
       setEditorMode('ai');
     }
     if (searchParams.get('parse') === '1' && !loading) {
-      setEditorMode('ai');
-      const stored = sessionStorage.getItem(`parseMeta-${id}`);
-      if (stored) {
-        try {
-          setParseMeta(JSON.parse(stored) as ParseMeta);
-        } catch {
-          /* ignore */
+      const pending = sessionStorage.getItem(`parsePending-${id}`);
+      if (pending) {
+        setEditorMode('ai');
+        const stored = sessionStorage.getItem(`parseMeta-${id}`);
+        if (stored) {
+          try {
+            setParseMeta(JSON.parse(stored) as ParseMeta);
+          } catch {
+            /* ignore */
+          }
         }
+        sessionStorage.removeItem(`parsePending-${id}`);
+        setParseWizardOpen(true);
+        setParseWizardStep(0);
+        dismissParseQuery(router, id);
+      } else {
+        dismissParseQuery(router, id);
       }
-      setParseWizardOpen(true);
-      setParseWizardStep(0);
     }
     const kw = searchParams.get('keywords');
     if (kw && !loading) {
@@ -233,7 +254,23 @@ function CVEditorPage() {
       toast.success(`Added ${added.length} keyword(s) from job match`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, searchParams]);
+  }, [loading, searchParams, id, parseWizardOpen]);
+
+  useEffect(() => {
+    if (parseWizardOpen) setEditorMode('ai');
+  }, [parseWizardOpen]);
+
+  const handleEditorModeChange = (mode: EditorPanelMode) => {
+    if (parseWizardOpen && mode === 'manual') return;
+    setEditorMode(mode);
+  };
+
+  const cancelParseWizard = () => {
+    clearParseReviewSession(id);
+    setParseWizardOpen(false);
+    setEditorMode('manual');
+    dismissParseQuery(router, id);
+  };
 
   const patchData = (patch: Partial<CVData>) => {
     setCvData((prev) => ({ ...prev, ...patch }));
@@ -366,9 +403,21 @@ function CVEditorPage() {
   const printPdf = async () => {
     try {
       await save();
-      await exportCVPdf(id);
+      const blob = await previewCVSavedPdf(id);
+      const url = pdfBlobToObjectUrl(blob);
+      const win = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        setError('Allow pop-ups to print the PDF');
+        URL.revokeObjectURL(url);
+        return;
+      }
+      win.addEventListener('load', () => {
+        win.focus();
+        win.print();
+      });
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Export failed');
+      setError(e instanceof ApiError ? e.message : 'Print failed');
     }
   };
 
@@ -429,9 +478,9 @@ function CVEditorPage() {
       if (hasLocation) parts.push('location');
 
       if (parts.length) {
-        toast.success(`Imported: ${parts.join(', ')} — review on the left`, { duration: 5000 });
+        toast.success(`Imported ${parts.join(', ')} — review the 3 steps below`, { duration: 5000 });
       } else {
-        toast.warning('Import done — fill in missing fields in the review panel', { duration: 4000 });
+        toast.warning('Import finished — fill in missing fields in the review steps', { duration: 4000 });
       }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Import failed';
@@ -448,9 +497,11 @@ function CVEditorPage() {
     setSaving(true);
     try {
       await save();
+      clearParseReviewSession(id);
       setParseWizardOpen(false);
       setEditorMode('manual');
-      toast.success('Imported data saved — edit manually anytime');
+      dismissParseQuery(router, id);
+      toast.success('Import saved — you can edit any section in the full editor');
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Save failed');
     } finally {
@@ -516,14 +567,14 @@ function CVEditorPage() {
 
   const parseImportStats = useMemo(
     () => ({
-      experienceCount: cvData.experience.length,
-      educationCount: cvData.education.length,
-      hasSummary: (cvData.summary?.trim().length ?? 0) >= 20,
-      hasLocation: Boolean(cvData.personal.location?.trim()),
-      skillsCount: cvData.skills.length,
-      languagesCount: cvData.languages.length,
+      experienceCount: previewData.experience.length,
+      educationCount: previewData.education.length,
+      hasSummary: (previewData.summary?.trim().length ?? 0) >= 20,
+      hasLocation: Boolean(previewData.personal.location?.trim()),
+      skillsCount: previewData.skills.length,
+      languagesCount: previewData.languages.length,
     }),
-    [cvData],
+    [previewData],
   );
 
   const toggleSection = (key: string) => {
@@ -557,6 +608,16 @@ function CVEditorPage() {
       />
 
       <div className="px-4 sm:px-6 py-4 max-w-[1800px] mx-auto w-full">
+      <input
+        ref={importFileRef}
+        type="file"
+        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={(e) => {
+          void handleImportFile(e.target.files?.[0])
+          e.target.value = ''
+        }}
+      />
       {error && (
         <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
           {error}
@@ -571,6 +632,15 @@ function CVEditorPage() {
       <div className="flex flex-wrap gap-2 mb-4">
         <button
           type="button"
+          onClick={() => importFileRef.current?.click()}
+          disabled={importing}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 text-purple-700 text-xs rounded-lg disabled:opacity-50"
+        >
+          <FileUp size={14} />
+          {importing ? (importStep ?? 'Importing…') : 'Import CV'}
+        </button>
+        <button
+          type="button"
           onClick={save}
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 text-purple-700 text-xs rounded-lg disabled:opacity-50"
@@ -578,12 +648,14 @@ function CVEditorPage() {
           <Save size={14} />
           {saving ? 'Saving…' : 'Save now'}
         </button>
+        {!parseWizardOpen && (
         <Link
           href={`/cv/${id}/review`}
           className="flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 text-purple-700 text-xs rounded-lg"
         >
-          Review wizard
+          Full review page
         </Link>
+        )}
         <Link
           href={`/job-match?cvId=${id}`}
           className="flex items-center gap-1.5 px-3 py-1.5 text-white text-xs rounded-lg font-medium"
@@ -618,6 +690,12 @@ function CVEditorPage() {
         </div>
       </div>
 
+      {parseWizardOpen && (
+        <div className="mb-4 text-sm text-purple-900 bg-purple-50 border border-purple-100 rounded-lg px-3 py-2">
+          CV import review — walk through the 3 steps on the left. The live preview on the right updates as you edit.
+        </div>
+      )}
+
       {enhancePreview && editorMode === 'ai' && !parseWizardOpen && (
         <div className="mb-4 xl:hidden">
           <EditorAiPanel
@@ -635,7 +713,8 @@ function CVEditorPage() {
 
       <EditorShell
         mode={editorMode}
-        onModeChange={setEditorMode}
+        onModeChange={handleEditorModeChange}
+        hideModeSwitch={parseWizardOpen}
         sidebarActive={activeSection}
         onSectionSelect={setActiveSection}
         preview={
@@ -984,9 +1063,7 @@ function CVEditorPage() {
             cvId={id}
             importing={importing}
             importStep={importStep}
-            fileInputRef={importFileRef}
             onImportClick={() => importFileRef.current?.click()}
-            onFileSelect={handleImportFile}
             parseWizard={
               parseWizardOpen ? (
                 <EditorInlineParseWizard
@@ -996,10 +1073,7 @@ function CVEditorPage() {
                   importStats={parseImportStats}
                   saving={saving}
                   onFinish={() => void finishParseWizard()}
-                  onCancel={() => {
-                    setParseWizardOpen(false);
-                    setEditorMode('manual');
-                  }}
+                  onCancel={cancelParseWizard}
                 >
                   {parseWizardStep === 0 && (
                     <div className="space-y-3">
@@ -1104,14 +1178,18 @@ function CVEditorPage() {
                   )}
                   {parseWizardStep === 2 && (
                     <div className="space-y-3">
-                      <Field label="Skills">
-                        <textarea value={skillsText} onChange={(e) => setSkillsText(e.target.value)} rows={2} className={inputCls} />
+                      <p className="text-[11px] text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1.5">
+                        Soft skills go in <strong className="font-medium">Skills</strong>; tools and tech stacks in{' '}
+                        <strong className="font-medium">Technologies</strong>. Remove duplicates if the parser listed the same item twice.
+                      </p>
+                      <Field label="Skills (comma-separated)">
+                        <textarea value={skillsText} onChange={(e) => setSkillsText(e.target.value)} rows={2} className={inputCls} placeholder="Communication, Leadership, Agile" />
                       </Field>
-                      <Field label="Languages">
-                        <textarea value={languagesText} onChange={(e) => setLanguagesText(e.target.value)} rows={2} className={inputCls} />
+                      <Field label="Languages (one per line: Language — Level)">
+                        <textarea value={languagesText} onChange={(e) => setLanguagesText(e.target.value)} rows={2} className={inputCls} placeholder={'English — Fluent\nFrench — Native'} />
                       </Field>
-                      <Field label="Technologies">
-                        <textarea value={technologiesText} onChange={(e) => setTechnologiesText(e.target.value)} rows={2} className={inputCls} />
+                      <Field label="Technologies (comma-separated)">
+                        <textarea value={technologiesText} onChange={(e) => setTechnologiesText(e.target.value)} rows={2} className={inputCls} placeholder="React, Node.js, PostgreSQL" />
                       </Field>
                       <Field label="Certifications">
                         <textarea value={certificationsText} onChange={(e) => setCertificationsText(e.target.value)} rows={2} className={inputCls} placeholder="Name — Issuer — Year" />

@@ -82,15 +82,50 @@ Located in `templates/*/main.tex`:
 - `minimal` — compact single-column
 - `jake-resume` — Jake-style 9pt letter
 - `jake-resume-12pt` — Jake-style 12pt letter (English babel)
+- `moderncv-banking` — ModernCV banking style (French)
 
 See also: [Jake LaTeX conversion guide](JAKE-LATEX-CONVERSION-GUIDE.md) — convert hardcoded Jake `.tex` to placeholders + ChatGPT prompt.
+
+## ModernCV templates
+
+Use `\documentclass{moderncv}` with **placeholders only** in the body — do not paste broken `\customcventry` macros.
+
+```latex
+\documentclass[11pt,a4paper,sans]{moderncv}
+\moderncvstyle{banking}
+\moderncvcolor{black}
+\usepackage[french]{babel}
+\usepackage[scale=0.915]{geometry}
+\usepackage{enumitem}
+\begin{document}
+\begin{center}
+\textbf{\Huge \scshape {{fullName}}} \\[3pt]
+\footnotesize {{contactLine}}
+\end{center}
+\section{{{experienceTitle}}}
+{{experience}}
+\end{document}
+```
+
+**Do not** add `inputenc`/`fontenc` or extra `hyperref` — ModernCV uses XeTeX and loads hyperref itself.  
+Jobs/education render as native `\cventry{...}` automatically.
+
+After pulling template updates, rebuild the sandbox so ModernCV packages are cached:
+
+```bash
+docker compose up -d latex-sandbox --build
+npm run seed:templates
+```
 
 ## Troubleshooting
 
 | Error | Fix |
 |-------|-----|
 | LaTeX compiler offline | Run `docker compose up latex-sandbox` |
-| Package not found | Use packages from warmup list: `inputenc`, `fontenc`, `babel`, `geometry`, `hyperref`, `enumitem`, `xcolor` |
+| `Undefined control sequence` at header | Change `[3pt]` → `\\[3pt]` after name; remove broken `\` line breaks in tabular macros |
+| `Undefined control sequence` on `\href` | Add `hyperref` for `article` templates only — **not** for `moderncv` |
+| `Option clash for package hyperref` | Remove `\usepackage{hyperref}` from ModernCV templates |
+| Package not found | Rebuild sandbox: `docker compose up latex-sandbox --build` |
 | `Missing \begin{document}` at line 1 | Remove markdown fences (\`\`\`latex ... \`\`\`) from pasted template — or paste raw `.tex` only |
 | `sourcesanspro` not found | Not in Tectonic bundle — use `inputenc` + `T1` `fontenc` instead |
 | `\write18` rejected | Shell escape is blocked for security |

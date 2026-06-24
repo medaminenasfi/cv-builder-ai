@@ -10,7 +10,9 @@ const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const DEFAULT_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
 const CHEAP_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
 const DEFAULT_OPENROUTER_MAX_TOKENS = 192;
+const DEFAULT_OPENROUTER_PARSE_MAX_TOKENS = 1024;
 const ABSOLUTE_MAX_TOKENS = 256;
+const ABSOLUTE_PARSE_MAX_TOKENS = 2048;
 
 const OPENROUTER_MODEL_MAP: Record<string, string> = {
   'claude-sonnet-4-20250514': DEFAULT_OPENROUTER_MODEL,
@@ -96,6 +98,18 @@ export class OpenRouterService {
     return Math.min(fromEnv, ABSOLUTE_MAX_TOKENS);
   }
 
+  private resolveParseMaxTokens(requested?: number): number {
+    const configured = this.configService.get<string>('OPENROUTER_PARSE_MAX_TOKENS');
+    const parsed = configured ? Number.parseInt(configured, 10) : NaN;
+    const cap =
+      Number.isFinite(parsed) && parsed > 0
+        ? parsed
+        : DEFAULT_OPENROUTER_PARSE_MAX_TOKENS;
+    const bounded = Math.min(cap, ABSOLUTE_PARSE_MAX_TOKENS);
+    if (requested && requested > 0) return Math.min(requested, bounded);
+    return bounded;
+  }
+
   async chat(
     system: string,
     user: string,
@@ -106,8 +120,11 @@ export class OpenRouterService {
     let model = modelOverride ?? this.resolveModel(apiKey);
     const referer =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-    const cap = this.resolveMaxTokens();
-    let attemptMaxTokens = Math.min(maxTokens ?? cap, cap);
+    const defaultCap = this.resolveMaxTokens();
+    const parseCap = this.resolveParseMaxTokens(maxTokens);
+    const isHeavyParse = maxTokens != null && maxTokens > ABSOLUTE_MAX_TOKENS;
+    const cap = isHeavyParse ? parseCap : defaultCap;
+    let attemptMaxTokens = maxTokens ? Math.min(maxTokens, cap) : cap;
     let userContent = user;
     let usedCheapModel = false;
 

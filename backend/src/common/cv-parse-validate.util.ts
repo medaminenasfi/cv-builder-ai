@@ -97,6 +97,9 @@ export function validateAndRepairCVData(data: CVData): CVData {
   skills = dedupeByKey(skills, (s) => s.name).slice(0, 40);
   technologies = dedupeByKey(technologies, (t) => t.name).slice(0, 40);
 
+  const skillNameSet = new Set(skills.map((s) => s.name.toLowerCase().trim()));
+  technologies = technologies.filter((t) => !skillNameSet.has(t.name.toLowerCase().trim()));
+
   return {
     ...data,
     personal,

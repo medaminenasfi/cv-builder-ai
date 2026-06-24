@@ -24,10 +24,15 @@ RUN useradd -r -u 1001 -m sandbox \
 
 WORKDIR /app
 
-COPY warmup.tex ./
-RUN mkdir -p /tmp/warmup-out \
+# Bump WARMUP_VERSION when warmup .tex files change (invalidates Docker layer cache).
+ARG WARMUP_VERSION=3
+COPY warmup.tex warmup-moderncv.tex ./
+RUN sed -i 's/\r$//' warmup.tex warmup-moderncv.tex \
+    && mkdir -p /tmp/warmup-out \
     && HOME=/var/cache/tectonic XDG_CACHE_HOME=/var/cache/tectonic \
        tectonic -X compile warmup.tex --outdir /tmp/warmup-out \
+    && HOME=/var/cache/tectonic XDG_CACHE_HOME=/var/cache/tectonic \
+       tectonic -X compile warmup-moderncv.tex --outdir /tmp/warmup-out \
     && chown -R sandbox:sandbox /var/cache/tectonic \
     && rm -rf /tmp/warmup-out
 

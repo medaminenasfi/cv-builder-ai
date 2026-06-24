@@ -152,6 +152,18 @@ function normalizeProject(raw: unknown): CVProject {
   };
 }
 
+/** Remove duplicate names between skills and technologies (keep tech in technologies). */
+function dedupeSkillsAndTechnologies(
+  skills: CVData['skills'],
+  technologies: CVData['technologies'],
+): { skills: CVData['skills']; technologies: CVData['technologies'] } {
+  const techNames = new Set(technologies.map((t) => t.name.toLowerCase().trim()));
+  const filteredSkills = skills.filter((s) => !techNames.has(s.name.toLowerCase().trim()));
+  const skillNames = new Set(filteredSkills.map((s) => s.name.toLowerCase().trim()));
+  const filteredTech = technologies.filter((t) => !skillNames.has(t.name.toLowerCase().trim()));
+  return { skills: filteredSkills, technologies: filteredTech };
+}
+
 /** Merge stored/partial/AI-parsed data with safe defaults for the editor. */
 export function normalizeCVData(raw: unknown, locale: CVLocale = 'en'): CVData {
   const base = emptyCVData(locale);
@@ -169,6 +181,15 @@ export function normalizeCVData(raw: unknown, locale: CVLocale = 'en'): CVData {
         }
       : base.personal;
 
+  const deduped = dedupeSkillsAndTechnologies(
+    Array.isArray(partial.skills)
+      ? partial.skills.map(normalizeSkill).filter((s) => s.name.trim())
+      : [],
+    Array.isArray(partial.technologies)
+      ? partial.technologies.map(normalizeTechnology).filter((t) => t.name.trim())
+      : [],
+  );
+
   return {
     meta: {
       ...base.meta,
@@ -183,15 +204,11 @@ export function normalizeCVData(raw: unknown, locale: CVLocale = 'en'): CVData {
     education: Array.isArray(partial.education)
       ? partial.education.map(normalizeEducation)
       : [],
-    skills: Array.isArray(partial.skills)
-      ? partial.skills.map(normalizeSkill).filter((s) => s.name.trim())
-      : [],
+    skills: deduped.skills,
     languages: Array.isArray(partial.languages)
       ? partial.languages.map(normalizeLanguage).filter((l) => l.name.trim())
       : [],
-    technologies: Array.isArray(partial.technologies)
-      ? partial.technologies.map(normalizeTechnology).filter((t) => t.name.trim())
-      : [],
+    technologies: deduped.technologies,
     certifications: Array.isArray(partial.certifications)
       ? partial.certifications.map(normalizeCertification).filter((c) => c.name.trim())
       : [],
