@@ -1,8 +1,9 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
-import { AuthProvider } from '@/providers/AuthProvider'
-import { QueryProvider } from '@/providers/QueryProvider'
+import { NextIntlClientProvider } from 'next-intl'
+import { getLocale, getMessages } from 'next-intl/server'
+import { AppProviders } from '@/providers/AppProviders'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Toaster } from 'sonner'
 import './globals.css'
@@ -44,18 +45,21 @@ export const viewport: Viewport = {
   ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const locale = await getLocale()
+  const messages = await getMessages()
+
   return (
-    <html lang="en" className={`${inter.variable} bg-slate-50`}>
+    <html lang={locale} className={`${inter.variable} bg-slate-50`}>
       <body className="font-inter antialiased bg-slate-50 text-gray-900">
         <ErrorBoundary>
-          <QueryProvider>
-            <AuthProvider>{children}</AuthProvider>
-          </QueryProvider>
+          <NextIntlClientProvider locale={locale} messages={messages}>
+            <AppProviders>{children}</AppProviders>
+          </NextIntlClientProvider>
         </ErrorBoundary>
         <Toaster position="top-right" richColors closeButton />
         {process.env.NODE_ENV === 'production' && <Analytics />}

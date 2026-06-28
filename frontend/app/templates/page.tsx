@@ -127,13 +127,14 @@ export default function TemplatesPage() {
                     </span>
                   )}
 
-                  <div className="aspect-[3/4] w-full bg-purple-50 overflow-hidden relative">
+                  <div className="aspect-[3/4] w-full bg-purple-50 overflow-hidden relative pointer-events-none">
                     <TemplatePreviewFrame
                       templateId={t.id}
                       templateName={t.name}
                       thumbnailUrl={t.thumbnailUrl}
                       card
                       rtl={t.supportsRtl}
+                      livePreview={false}
                     />
                     <button
                       type="button"

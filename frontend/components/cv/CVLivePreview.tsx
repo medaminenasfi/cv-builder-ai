@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { pdfBlobToObjectUrl, previewCVPdf } from '@/lib/cvs-api';
+import { previewCVPdf } from '@/lib/cvs-api';
 import { ApiError } from '@/lib/api';
+import { pdfBlobToPageImageUrl } from '@/lib/pdf-preview-image';
 import { Eye, Maximize2, RefreshCw } from 'lucide-react';
 
 interface CVLivePreviewProps {
@@ -11,10 +12,12 @@ interface CVLivePreviewProps {
   dataRevision: string;
   templateId: string | null;
   templateName?: string;
+  /** When false (mobile Edit tab), compile still runs but refresh when shown again. */
+  isVisible?: boolean;
 }
 
-/** Wait after last edit before compiling (LaTeX is slow). */
-const PREVIEW_DEBOUNCE_MS = 4000;
+/** After first compile, wait before recompiling on edits. */
+const PREVIEW_DEBOUNCE_MS = 2500;
 
 function extractCompileLog(err: unknown): string {
   if (err instanceof ApiError && err.data && typeof err.data === 'object') {
@@ -37,74 +40,85 @@ export function CVLivePreview({
   dataRevision,
   templateId,
   templateName,
+  isVisible = true,
 }: CVLivePreviewProps) {
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [compileLog, setCompileLog] = useState<string | null>(null);
   const requestIdRef = useRef(0);
-  const pdfUrlRef = useRef<string | null>(null);
+  const imageUrlRef = useRef<string | null>(null);
   const draftRef = useRef({ cvId, data, templateId });
   const lastCompiledKeyRef = useRef<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(false);
+  const wasVisibleRef = useRef(isVisible);
 
   draftRef.current = { cvId, data, templateId };
 
-  const runCompile = useCallback((force = false) => {
-    if (!dataRevision || dataRevision === 'undefined') return;
+  const runCompile = useCallback(
+    (force = false) => {
+      if (!dataRevision || dataRevision === 'undefined') return;
 
-    const key = revisionKey(templateId, dataRevision);
+      const key = revisionKey(templateId, dataRevision);
 
-    if (!force && key === lastCompiledKeyRef.current) {
-      setLoading(false);
-      return;
-    }
-
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-    setError(null);
-    setCompileLog(null);
-
-    const { cvId: id, data: draft, templateId: tpl } = draftRef.current;
-
-    previewCVPdf(id, { data: draft, templateId: tpl })
-      .then((blob) => {
-        if (requestId !== requestIdRef.current) return;
-        if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
-        const url = pdfBlobToObjectUrl(blob);
-        pdfUrlRef.current = url;
-        setPdfUrl(url);
-        lastCompiledKeyRef.current = key;
-      })
-      .catch((e) => {
-        if (requestId !== requestIdRef.current) return;
-        const msg = extractCompileLog(e);
-        setError(msg);
-        setCompileLog(msg);
-        setPdfUrl(null);
-      })
-      .finally(() => {
-        if (requestId !== requestIdRef.current) return;
+      if (!force && key === lastCompiledKeyRef.current) {
         setLoading(false);
-      });
-  }, [cvId, dataRevision, templateId]);
+        return;
+      }
+
+      const requestId = ++requestIdRef.current;
+      setLoading(true);
+      setError(null);
+      setCompileLog(null);
+
+      const { cvId: id, data: draft, templateId: tpl } = draftRef.current;
+
+      previewCVPdf(id, { data: draft, templateId: tpl })
+        .then(async (blob) => {
+          if (requestId !== requestIdRef.current) return;
+          const url = await pdfBlobToPageImageUrl(blob, 900);
+          if (requestId !== requestIdRef.current) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+          imageUrlRef.current = url;
+          setImageUrl(url);
+          lastCompiledKeyRef.current = key;
+        })
+        .catch((e) => {
+          if (requestId !== requestIdRef.current) return;
+          const msg = extractCompileLog(e);
+          setError(msg);
+          setCompileLog(msg);
+        })
+        .finally(() => {
+          if (requestId !== requestIdRef.current) return;
+          setLoading(false);
+        });
+    },
+    [cvId, dataRevision, templateId],
+  );
 
   const scheduleCompile = useCallback(
-    (force = false) => {
+    (force = false, delayMs?: number) => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
-      if (force) {
-        runCompile(true);
-        return;
-      }
-      debounceTimerRef.current = setTimeout(() => runCompile(false), PREVIEW_DEBOUNCE_MS);
+      const delay = force ? 0 : (delayMs ?? PREVIEW_DEBOUNCE_MS);
+      debounceTimerRef.current = setTimeout(() => runCompile(force), delay);
     },
     [runCompile],
   );
 
   useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      scheduleCompile(true, 0);
+      return;
+    }
     scheduleCompile(false);
     return () => {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
@@ -112,8 +126,18 @@ export function CVLivePreview({
   }, [dataRevision, templateId, scheduleCompile]);
 
   useEffect(() => {
+    if (isVisible && !wasVisibleRef.current) {
+      const key = revisionKey(templateId, dataRevision);
+      if (key !== lastCompiledKeyRef.current) {
+        scheduleCompile(true, 0);
+      }
+    }
+    wasVisibleRef.current = isVisible;
+  }, [isVisible, dataRevision, templateId, scheduleCompile]);
+
+  useEffect(() => {
     return () => {
-      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
     };
   }, []);
 
@@ -125,7 +149,7 @@ export function CVLivePreview({
           <div>
             <p className="text-sm font-medium text-gray-900">Live Preview (PDF)</p>
             <p className="text-[11px] text-gray-500">
-              {templateName ?? 'Default template'} · LaTeX · updates ~4s after you stop typing
+              {templateName ?? 'Default template'} · compiles on load · updates ~2.5s after edits
             </p>
           </div>
         </div>
@@ -135,7 +159,7 @@ export function CVLivePreview({
           )}
           <button
             type="button"
-            onClick={() => scheduleCompile(true)}
+            onClick={() => scheduleCompile(true, 0)}
             disabled={loading}
             className="flex items-center gap-1 text-[10px] text-purple-600 hover:underline disabled:opacity-50"
             title="Refresh preview"
@@ -160,17 +184,18 @@ export function CVLivePreview({
             {compileLog ?? error}
           </div>
         )}
-        {!error && !pdfUrl && loading && (
+        {!error && !imageUrl && loading && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
             Compiling PDF preview (LaTeX may take 15–30s)…
           </div>
         )}
-        {pdfUrl && (
-          <embed
-            title="CV PDF preview"
-            src={`${pdfUrl}#toolbar=0&navpanes=0`}
-            type="application/pdf"
-            className="w-full flex-1 min-h-[500px] border-0 bg-white shadow-lg rounded"
+        {imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt="CV preview"
+            draggable={false}
+            className={`w-full max-w-[210mm] object-contain object-top bg-white shadow-lg rounded pointer-events-none select-none transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}
           />
         )}
       </div>

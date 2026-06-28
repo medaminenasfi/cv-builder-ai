@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchAdmin, apiFetchBlob, apiFetchAdminBlob } from './api';
+import { ensurePdfBlob } from './pdf-blob';
 
 export interface Template {
   id: string;
@@ -99,19 +100,22 @@ export function deleteTemplate(id: string) {
   return apiFetchAdmin<void>(`/admin/templates/${id}`, { method: 'DELETE' });
 }
 
-export function previewActiveTemplatePdf(id: string, rtl = false) {
-  return apiFetchBlob(`/templates/${id}/preview.pdf?rtl=${rtl}`);
+export async function previewActiveTemplatePdf(id: string, rtl = false): Promise<Blob> {
+  const blob = await apiFetchBlob(`/templates/${id}/preview.pdf?rtl=${rtl}`);
+  return ensurePdfBlob(blob);
 }
 
-export function previewTemplatePdf(id: string, rtl = false) {
-  return apiFetchAdminBlob(`/admin/templates/${id}/preview.pdf?rtl=${rtl}`);
+export async function previewTemplatePdf(id: string, rtl = false): Promise<Blob> {
+  const blob = await apiFetchAdminBlob(`/admin/templates/${id}/preview.pdf?rtl=${rtl}`);
+  return ensurePdfBlob(blob);
 }
 
-export function compileLatex(tex: string) {
-  return apiFetchAdminBlob('/admin/templates/latex/compile', {
+export async function compileLatex(tex: string): Promise<Blob> {
+  const blob = await apiFetchAdminBlob('/admin/templates/latex/compile', {
     method: 'POST',
     body: JSON.stringify({ tex }),
   });
+  return ensurePdfBlob(blob);
 }
 
 export function listBundledTemplates() {

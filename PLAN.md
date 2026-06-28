@@ -1,6 +1,8 @@
 # CV Builder — Plan Master (unique)
 
-> Single source of truth. Supersedes `cv_builder_full_plan` and `cv_builder_plan_v2`.
+> Single source of truth. Superseded by `cv_builder_full_plan` and `cv_builder_plan_v2`.
+>
+> **Updated:** Canonical documentation now lives in [`docs/`](docs/) — see [`docs/TASKS.md`](docs/TASKS.md) for living task tracker and [`docs/PROJECT.md`](docs/PROJECT.md) for current status.
 
 ## Current status
 

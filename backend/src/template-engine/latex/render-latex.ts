@@ -1,6 +1,8 @@
 import type { CVData } from '../../common/cv-schema';
+import { isSectionVisible } from '../../common/section-visibility.util';
 import { SECTION_TITLES, sectionTitle } from '../section-titles';
 import { escapeLatex } from './latex-escape';
+import { omitHiddenSectionsFromLatex, stripEmptyLatexSections } from './latex-section-visibility';
 import { prepareModerncvDocument, sanitizeLatexForTectonic } from './latex-sanitize';
 import {
   detectLatexSectionStyle,
@@ -97,8 +99,12 @@ export function renderLatex(
   options: LatexRenderOptions = {},
 ): string {
   const locale = (options.locale ?? cvData.meta.locale ?? 'en') as string;
-  const source = sanitizeLatexForTectonic((latexSource.trim() || DEFAULT_LATEX));
+  const source = sanitizeLatexForTectonic(
+    omitHiddenSectionsFromLatex((latexSource.trim() || DEFAULT_LATEX), cvData),
+  );
   const sectionStyle = detectLatexSectionStyle(source);
+
+  const visible = (key: string) => isSectionVisible(cvData, key);
 
   let body = source
     .replace(/\{\{fullName\}\}/g, escapeLatex(cvData.personal.fullName))
@@ -109,14 +115,14 @@ export function renderLatex(
     .replace(/\{\{linkedin\}\}/g, escapeLatex(cvData.personal.linkedin ?? ''))
     .replace(/\{\{website\}\}/g, escapeLatex(cvData.personal.website ?? ''))
     .replace(/\{\{contactLine\}\}/g, renderLatexContactLine(cvData))
-    .replace(/\{\{summary\}\}/g, escapeLatex(cvData.summary ?? ''))
-    .replace(/\{\{education\}\}/g, renderLatexEducation(cvData, sectionStyle))
-    .replace(/\{\{experience\}\}/g, renderLatexExperience(cvData, sectionStyle))
-    .replace(/\{\{skills\}\}/g, renderLatexSkills(cvData, sectionStyle))
-    .replace(/\{\{languages\}\}/g, renderLatexLanguages(cvData, sectionStyle))
-    .replace(/\{\{technologies\}\}/g, renderLatexTechnologies(cvData, sectionStyle))
-    .replace(/\{\{certifications\}\}/g, renderLatexCertifications(cvData, sectionStyle))
-    .replace(/\{\{projects\}\}/g, renderLatexProjects(cvData, sectionStyle));
+    .replace(/\{\{summary\}\}/g, visible('summary') ? escapeLatex(cvData.summary ?? '') : '')
+    .replace(/\{\{education\}\}/g, visible('education') ? renderLatexEducation(cvData, sectionStyle) : '')
+    .replace(/\{\{experience\}\}/g, visible('experience') ? renderLatexExperience(cvData, sectionStyle) : '')
+    .replace(/\{\{skills\}\}/g, visible('skills') ? renderLatexSkills(cvData, sectionStyle) : '')
+    .replace(/\{\{languages\}\}/g, visible('languages') ? renderLatexLanguages(cvData, sectionStyle) : '')
+    .replace(/\{\{technologies\}\}/g, visible('technologies') ? renderLatexTechnologies(cvData, sectionStyle) : '')
+    .replace(/\{\{certifications\}\}/g, visible('certifications') ? renderLatexCertifications(cvData, sectionStyle) : '')
+    .replace(/\{\{projects\}\}/g, visible('projects') ? renderLatexProjects(cvData, sectionStyle) : '');
 
   const moderncvPersonal = renderModerncvPersonal(cvData);
   if (sectionStyle === 'moderncv') {
@@ -134,5 +140,5 @@ export function renderLatex(
     );
   }
 
-  return sanitizeLatexForTectonic(body);
+  return sanitizeLatexForTectonic(stripEmptyLatexSections(body));
 }

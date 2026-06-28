@@ -5,14 +5,17 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { PLAN_FEATURES } from '@/lib/mockData';
 import * as authApi from '@/lib/auth-api';
 import { createCheckoutSession } from '@/lib/billing-api';
-import { listCVs } from '@/lib/cvs-api';
+import { listCVs, getAiUsage } from '@/lib/cvs-api';
 import { ApiError } from '@/lib/api';
 import type { UserLocale } from '@/lib/types/auth';
 import { useAuth } from '@/providers/AuthProvider';
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { setLocaleCookie } from '@/providers/LocaleProvider';
 import { toast } from 'sonner';
 
 export default function SettingsPage() {
+  const router = useRouter();
   const { user, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState<
     'account' | 'plan' | 'language' | 'profile' | 'notifications' | 'defaults' | 'theme'
@@ -22,6 +25,8 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('');
   const [language, setLanguage] = useState<UserLocale>('en');
   const [cvCount, setCvCount] = useState(0);
+  const [aiUsed, setAiUsed] = useState(0);
+  const [aiLimit, setAiLimit] = useState(25);
   const [loadingUsage, setLoadingUsage] = useState(true);
 
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
@@ -54,8 +59,10 @@ export default function SettingsPage() {
   const loadUsage = useCallback(async () => {
     setLoadingUsage(true);
     try {
-      const cvs = await listCVs();
+      const [cvs, ai] = await Promise.all([listCVs(), getAiUsage()]);
       setCvCount(cvs.length);
+      setAiUsed(ai.used);
+      setAiLimit(ai.limit);
     } catch {
       setCvCount(0);
     } finally {
@@ -98,7 +105,9 @@ export default function SettingsPage() {
     setSavingLocale(true);
     try {
       await authApi.updateProfile(language);
+      setLocaleCookie(language);
       await refreshUser();
+      router.refresh();
       setLocaleMsg('Language preference saved');
     } catch (e) {
       setLocaleErr(e instanceof ApiError ? e.message : 'Failed to save preferences');
@@ -112,7 +121,9 @@ export default function SettingsPage() {
     try {
       const result = await createCheckoutSession();
       if (result.url) {
-        window.open(result.url, '_blank', 'noopener,noreferrer');
+        window.location.href = result.url;
+      } else {
+        toast.info(result.message ?? 'Configure Stripe in backend/.env to enable checkout');
       }
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'Checkout unavailable — ask admin to upgrade your plan');
@@ -308,9 +319,22 @@ export default function SettingsPage() {
                       />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400">
-                    AI usage tracking coming soon. Enhance CV from the editor today.
-                  </p>
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-sm text-gray-600">AI calls today</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {loadingUsage ? '…' : aiUsed} / {aiLimit}
+                      </p>
+                    </div>
+                    <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-violet-600 to-fuchsia-500 transition-all"
+                        style={{
+                          width: `${Math.min(100, Math.round((aiUsed / Math.max(aiLimit, 1)) * 100))}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -405,7 +429,9 @@ export default function SettingsPage() {
                 placeholder={user?.email ?? 'Your name'}
                 className="w-full border border-purple-100 rounded-lg px-3 py-2 text-sm mb-4"
               />
-              <p className="text-xs text-gray-400">Shown on shared resumes (coming soon)</p>
+              <p className="text-xs text-gray-500">
+                Used as the name on shared resume links when set.
+              </p>
             </div>
           )}
 

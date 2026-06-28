@@ -1,9 +1,37 @@
 {
-  "app": {
-    "title": "ResumeAI",
-    "dashboard": "Mes CV",
+  "nav": {
+    "dashboard": "Tableau de bord",
     "templates": "Modèles",
-    "login": "Connexion",
-    "register": "Créer un compte"
+    "jobMatch": "Offre d'emploi",
+    "settings": "Paramètres",
+    "logout": "Déconnexion"
+  },
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "loading": "Chargement…",
+    "error": "Une erreur est survenue",
+    "apply": "Appliquer",
+    "discard": "Ignorer"
+  },
+  "dashboard": {
+    "title": "Mes CV",
+    "newResume": "Nouveau CV",
+    "empty": "Aucun CV pour le moment",
+    "browseTemplates": "Parcourir les modèles"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "account": "Compte",
+    "plan": "Forfait",
+    "language": "Langue",
+    "aiUsage": "Utilisation IA aujourd'hui",
+    "upgrade": "Passer à Pro",
+    "displayName": "Nom affiché sur les liens partagés"
+  },
+  "editor": {
+    "manual": "Manuel",
+    "aiAssistant": "Assistant IA",
+    "versionHistory": "Historique des versions"
   }
 }

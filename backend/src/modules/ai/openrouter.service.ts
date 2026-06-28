@@ -11,8 +11,10 @@ const DEFAULT_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
 const CHEAP_OPENROUTER_MODEL = 'google/gemini-2.5-flash-lite';
 const DEFAULT_OPENROUTER_MAX_TOKENS = 192;
 const DEFAULT_OPENROUTER_PARSE_MAX_TOKENS = 1024;
+const DEFAULT_OPENROUTER_ENHANCE_MAX_TOKENS = 1536;
 const ABSOLUTE_MAX_TOKENS = 256;
 const ABSOLUTE_PARSE_MAX_TOKENS = 2048;
+const ABSOLUTE_ENHANCE_MAX_TOKENS = 4096;
 
 const OPENROUTER_MODEL_MAP: Record<string, string> = {
   'claude-sonnet-4-20250514': DEFAULT_OPENROUTER_MODEL,
@@ -110,6 +112,23 @@ export class OpenRouterService {
     return bounded;
   }
 
+  private resolveEnhanceMaxTokens(requested?: number): number {
+    const configured = this.configService.get<string>('OPENROUTER_ENHANCE_MAX_TOKENS');
+    const parsed = configured ? Number.parseInt(configured, 10) : NaN;
+    const cap =
+      Number.isFinite(parsed) && parsed > 0
+        ? parsed
+        : DEFAULT_OPENROUTER_ENHANCE_MAX_TOKENS;
+    const bounded = Math.min(cap, ABSOLUTE_ENHANCE_MAX_TOKENS);
+    if (requested && requested > 0) return Math.min(requested, bounded);
+    return bounded;
+  }
+
+  /** Token budget for CV enhance / section rewrite (needs more than chat default). */
+  getEnhanceMaxTokens(): number {
+    return this.resolveEnhanceMaxTokens();
+  }
+
   async chat(
     system: string,
     user: string,
@@ -121,9 +140,12 @@ export class OpenRouterService {
     const referer =
       this.configService.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
     const defaultCap = this.resolveMaxTokens();
-    const parseCap = this.resolveParseMaxTokens(maxTokens);
-    const isHeavyParse = maxTokens != null && maxTokens > ABSOLUTE_MAX_TOKENS;
-    const cap = isHeavyParse ? parseCap : defaultCap;
+    const cap =
+      maxTokens != null && maxTokens > ABSOLUTE_MAX_TOKENS
+        ? maxTokens >= ABSOLUTE_PARSE_MAX_TOKENS
+          ? this.resolveParseMaxTokens(maxTokens)
+          : this.resolveEnhanceMaxTokens(maxTokens)
+        : defaultCap;
     let attemptMaxTokens = maxTokens ? Math.min(maxTokens, cap) : cap;
     let userContent = user;
     let usedCheapModel = false;

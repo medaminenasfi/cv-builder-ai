@@ -1,4 +1,9 @@
 import { newCvId, type CVData } from './cv-schema';
+import {
+  dedupeExperienceList,
+  experiencesOverlap,
+  experienceFingerprint,
+} from './experience-dedupe.util';
 
 /** Extract and clean plain text from a PDF buffer (page-by-page for completeness). */
 export async function extractPdfText(
@@ -394,7 +399,7 @@ function experienceKey(item: {
   company: string;
   startDate: string;
 }): string {
-  return `${item.role}|${item.company}|${item.startDate}`.toLowerCase().trim();
+  return experienceFingerprint(item);
 }
 
 /** Scan job header lines (role + dates) and pair with company + bullets — FR PDF layout. */
@@ -524,9 +529,11 @@ export function extractExperienceFromText(
     pushParsed(item);
   }
 
-  const paragraphs = block.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 10);
-  for (const para of paragraphs) {
-    pushParsed(parseExperienceParagraph(para));
+  if (results.length === 0) {
+    const paragraphs = block.split(/\n{2,}/).map((p) => p.trim()).filter((p) => p.length > 10);
+    for (const para of paragraphs) {
+      pushParsed(parseExperienceParagraph(para));
+    }
   }
 
   if (results.length < 1) {
@@ -765,11 +772,9 @@ function mergeExperienceEntries(
   }>,
 ): CVData['experience'] {
   const out = [...existing];
-  const keys = new Set(out.map((e) => experienceKey(e)));
   for (const exp of extracted) {
     if (!exp.role && !exp.company) continue;
-    const key = experienceKey(exp);
-    if (keys.has(key)) continue;
+    if (out.some((e) => experiencesOverlap(e, exp))) continue;
     out.push({
       id: newCvId(),
       company: exp.company,
@@ -778,9 +783,8 @@ function mergeExperienceEntries(
       endDate: exp.endDate,
       bullets: exp.bullets,
     });
-    keys.add(key);
   }
-  return out;
+  return dedupeExperienceList(out);
 }
 
 function mergeEducationEntries(
@@ -929,9 +933,15 @@ export function enrichCVFromRawText(data: CVData, rawText: string): CVData {
     }
   }
 
-  let experience = mergeExperienceEntries(data.experience, extractExperienceFromText(rawText));
+  let experience = data.experience;
+  if (experience.length === 0) {
+    experience = mergeExperienceEntries([], extractExperienceFromText(rawText));
+  }
 
-  let education = mergeEducationEntries(data.education, extractEducationFromText(rawText));
+  let education = data.education;
+  if (education.length === 0) {
+    education = mergeEducationEntries([], extractEducationFromText(rawText));
+  }
 
   let projects = [...data.projects];
   if (projects.length < 1) {

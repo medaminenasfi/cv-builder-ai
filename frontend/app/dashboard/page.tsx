@@ -36,7 +36,8 @@ export default function DashboardPage() {
 
   const handleShare = async (id: string) => {
     const { shareCV } = await import('@/lib/cvs-api')
-    const result = await shareCV(id)
+    const displayName = localStorage.getItem('resumeai-display-name') ?? undefined
+    const result = await shareCV(id, displayName)
     const url = `${window.location.origin}${result.url}`
     try {
       await navigator.clipboard.writeText(url)

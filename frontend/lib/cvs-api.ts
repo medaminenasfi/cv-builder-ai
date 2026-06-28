@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchBlob } from './api';
+import { ensurePdfBlob } from './pdf-blob';
 import type { CVData } from './types/cv-data';
 
 export interface CV {
@@ -189,13 +190,7 @@ export function exportCVDocxUrl(id: string) {
 }
 
 /** Normalize PDF blob so browsers display inline instead of forcing a download. */
-export function pdfBlobToObjectUrl(blob: Blob): string {
-  const typed =
-    blob.type === 'application/pdf'
-      ? blob
-      : new Blob([blob], { type: 'application/pdf' });
-  return URL.createObjectURL(typed);
-}
+export { ensurePdfBlob, pdfBlobToObjectUrl } from './pdf-blob';
 
 export async function previewCVPdf(
   id: string,
@@ -205,20 +200,19 @@ export async function previewCVPdf(
     method: 'POST',
     body: JSON.stringify(payload ?? {}),
   });
-  return blob.type === 'application/pdf'
-    ? blob
-    : new Blob([blob], { type: 'application/pdf' });
+  return ensurePdfBlob(blob);
 }
 
 export async function previewCVSavedPdf(id: string): Promise<Blob> {
   const blob = await apiFetchBlob(`/cvs/${id}/preview.pdf`);
-  return blob.type === 'application/pdf'
-    ? blob
-    : new Blob([blob], { type: 'application/pdf' });
+  return ensurePdfBlob(blob);
 }
 
-export function shareCV(id: string) {
-  return apiFetch<{ token: string; url: string }>(`/cvs/${id}/share`, { method: 'POST' });
+export function shareCV(id: string, displayName?: string) {
+  return apiFetch<{ token: string; url: string }>(`/cvs/${id}/share`, {
+    method: 'POST',
+    body: JSON.stringify({ displayName: displayName?.trim() || undefined }),
+  });
 }
 
 export function matchJob(id: string, jobDescription: string, jobTitle?: string) {
@@ -308,4 +302,14 @@ export function getParseJob(jobId: string) {
     error: string | null;
     result: Record<string, unknown> | null;
   }>(`/cvs/import/jobs/${jobId}`);
+}
+
+export function interviewQuestions(cvId: string, jobDescription: string, jobTitle?: string) {
+  return apiFetch<{ questions: Array<{ q: string; hint: string }> }>(
+    `/cvs/${cvId}/jobs/interview-questions`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ jobDescription, jobTitle }),
+    },
+  );
 }

@@ -27,6 +27,9 @@ export class ShareLinkEntity {
   @Column({ name: 'view_count', type: 'int', default: 0 })
   viewCount: number;
 
+  @Column({ name: 'display_name', type: 'varchar', nullable: true })
+  displayName: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

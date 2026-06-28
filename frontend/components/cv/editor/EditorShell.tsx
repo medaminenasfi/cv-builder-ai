@@ -15,7 +15,7 @@ interface EditorShellProps {
   manualPanel: ReactNode
   aiPanel: ReactNode
   preview: ReactNode
-  /** Hide Manual / AI toggle while the import review wizard is active */
+  enabledSections?: string[]
   hideModeSwitch?: boolean
 }
 
@@ -27,6 +27,7 @@ export function EditorShell({
   manualPanel,
   aiPanel,
   preview,
+  enabledSections,
   hideModeSwitch = false,
 }: EditorShellProps) {
   const [mobileTab, setMobileTab] = useState<MobileTab>('panel')
@@ -53,19 +54,18 @@ export function EditorShell({
         ))}
       </div>
 
-      {/* Desktop: features LEFT · live preview RIGHT */}
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(340px,42%)_minmax(0,1fr)] xl:grid-cols-[minmax(380px,40%)_minmax(0,1.15fr)] gap-5 lg:gap-6 items-start">
-        <section
-          className={`min-w-0 ${
-            mobileTab === 'panel' ? 'block' : 'hidden lg:block'
-          }`}
-        >
+        <section className={`min-w-0 ${mobileTab === 'preview' ? 'max-lg:hidden' : 'block'}`}>
           <div className="lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:pr-1">
             {!hideModeSwitch && <EditorModeSwitch mode={mode} onChange={onModeChange} />}
 
             {mode === 'manual' ? (
               <>
-                <EditorSidebar active={sidebarActive} onSelect={scrollToSection} />
+                <EditorSidebar
+                  active={sidebarActive}
+                  onSelect={scrollToSection}
+                  enabledSections={enabledSections}
+                />
                 {manualPanel}
               </>
             ) : (

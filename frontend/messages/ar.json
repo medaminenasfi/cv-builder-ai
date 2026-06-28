@@ -1,9 +1,37 @@
 {
-  "app": {
-    "title": "ResumeAI",
-    "dashboard": "سيرتي الذاتية",
+  "nav": {
+    "dashboard": "لوحة التحكم",
     "templates": "القوالب",
-    "login": "تسجيل الدخول",
-    "register": "إنشاء حساب"
+    "jobMatch": "مطابقة الوظيفة",
+    "settings": "الإعدادات",
+    "logout": "تسجيل الخروج"
+  },
+  "common": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "loading": "جاري التحميل…",
+    "error": "حدث خطأ ما",
+    "apply": "تطبيق",
+    "discard": "تجاهل"
+  },
+  "dashboard": {
+    "title": "سيرتي الذاتية",
+    "newResume": "سيرة جديدة",
+    "empty": "لا توجد سير ذاتية بعد",
+    "browseTemplates": "تصفح القوالب"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "account": "الحساب",
+    "plan": "الخطة",
+    "language": "اللغة",
+    "aiUsage": "استخدام الذكاء الاصطناعي اليوم",
+    "upgrade": "الترقية إلى Pro",
+    "displayName": "الاسم المعروض على الروابط المشتركة"
+  },
+  "editor": {
+    "manual": "يدوي",
+    "aiAssistant": "مساعد الذكاء الاصطناعي",
+    "versionHistory": "سجل الإصدارات"
   }
 }

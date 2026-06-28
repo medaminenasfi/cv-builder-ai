@@ -5,8 +5,10 @@ import {
   applyJobEnhancement,
   coverLetter,
   enhanceForJob,
+  interviewQuestions,
   listCVs,
   listAtsMatches,
+  listCoverLetters,
   matchJob,
   type AtsMatchResult,
   type JobEnhanceResult,
@@ -47,6 +49,8 @@ export default function JobMatchContent() {
   const [letterTone, setLetterTone] = useState<'professional' | 'creative' | 'technical'>('professional')
   const [scoreHistory, setScoreHistory] = useState<number[]>([])
   const [applying, setApplying] = useState(false)
+  const [pastLetters, setPastLetters] = useState<Array<{ id: string; content: string; createdAt: string }>>([])
+  const [interviewQs, setInterviewQs] = useState<Array<{ q: string; hint: string }>>([])
 
   useEffect(() => {
     listCVs().then((list) => {
@@ -116,6 +120,27 @@ export default function JobMatchContent() {
     }
   }
 
+  useEffect(() => {
+    if (!cvId) return
+    listCoverLetters(cvId)
+      .then(setPastLetters)
+      .catch(() => setPastLetters([]))
+  }, [cvId])
+
+  const genInterview = async () => {
+    if (!cvId || !jd.trim()) return
+    setLoading(true)
+    setError(null)
+    try {
+      const r = await interviewQuestions(cvId, jd)
+      setInterviewQs(r.questions)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Interview prep failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const genLetter = async () => {
     if (!cvId || !jd.trim()) return
     setLoading(true)
@@ -123,6 +148,7 @@ export default function JobMatchContent() {
     try {
       const r = await coverLetter(cvId, jd, undefined, letterTone)
       setLetter(r.content)
+      listCoverLetters(cvId).then(setPastLetters).catch(() => {})
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Cover letter failed')
     } finally {
@@ -216,6 +242,14 @@ export default function JobMatchContent() {
             <option value="creative">Creative</option>
             <option value="technical">Technical</option>
           </select>
+          <button
+            type="button"
+            onClick={genInterview}
+            disabled={loading || !cvId || !jd.trim()}
+            className="flex items-center gap-1.5 px-4 py-2 border border-purple-200 text-purple-700 rounded-lg text-sm disabled:opacity-50"
+          >
+            Interview prep
+          </button>
           {cvId && (
             <button
               type="button"
@@ -328,14 +362,47 @@ export default function JobMatchContent() {
         )}
 
         {letter && (
-          <div className="bg-white border border-purple-100 rounded-xl p-5">
+          <div className="app-card p-5">
             <h3 className="font-medium text-gray-900 mb-2">Cover letter</h3>
             <pre className="text-sm whitespace-pre-wrap text-gray-700 font-sans">{letter}</pre>
           </div>
         )}
 
+        {pastLetters.length > 0 && (
+          <div className="app-card p-5 space-y-3">
+            <h3 className="font-medium text-gray-900">Past cover letters</h3>
+            {pastLetters.slice(0, 5).map((cl) => (
+              <button
+                key={cl.id}
+                type="button"
+                onClick={() => setLetter(cl.content)}
+                className="w-full text-left text-xs p-3 rounded-lg border border-purple-100 hover:bg-purple-50/80"
+              >
+                <span className="text-gray-400 block mb-1">
+                  {new Date(cl.createdAt).toLocaleString()}
+                </span>
+                <span className="text-gray-700 line-clamp-2">{cl.content.slice(0, 160)}…</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {interviewQs.length > 0 && (
+          <div className="app-card p-5 space-y-3">
+            <h3 className="font-medium text-gray-900">Interview questions</h3>
+            <ul className="space-y-3">
+              {interviewQs.map((item) => (
+                <li key={item.q} className="text-sm border-l-2 border-purple-300 pl-3">
+                  <p className="font-medium text-gray-900">{item.q}</p>
+                  <p className="text-xs text-gray-500 mt-1">{item.hint}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {scoreHistory.length > 1 && (
-          <div className="bg-white border border-purple-100 rounded-xl p-4">
+          <div className="app-card p-4">
             <p className="text-xs font-medium text-gray-500 mb-2">ATS score history</p>
             <div className="h-36 mb-3">
               <ResponsiveContainer width="100%" height="100%">

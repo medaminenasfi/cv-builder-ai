@@ -1,5 +1,6 @@
 import type { CVData } from './cv-schema';
 import { newCvId } from './cv-schema';
+import { dedupeExperienceList } from './experience-dedupe.util';
 
 const EMAIL_RE = /^[\w.+-]+@[\w.-]+\.[a-z]{2,}$/i;
 
@@ -52,10 +53,10 @@ export function validateAndRepairCVData(data: CVData): CVData {
     }))
     .filter((e) => e.company || e.role || e.bullets.length > 0);
 
-  experience = dedupeByKey(
-    experience,
-    (e) => `${e.company}|${e.role}|${e.startDate}`,
-  );
+  experience = dedupeExperienceList(experience).map((e) => ({
+    ...e,
+    endDate: normalizeDate(e.endDate ?? ''),
+  }));
 
   let education = data.education
     .map((e) => ({

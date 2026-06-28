@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -14,8 +14,12 @@ export class SharingController {
   @Post('cvs/:id/share')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  create(@Param('id') id: string, @CurrentUser() user: UserEntity) {
-    return this.sharingService.createLink(id, user.id);
+  create(
+    @Param('id') id: string,
+    @Body() body: { displayName?: string },
+    @CurrentUser() user: UserEntity,
+  ) {
+    return this.sharingService.createLink(id, user.id, body.displayName);
   }
 
   @Get('share/:token')

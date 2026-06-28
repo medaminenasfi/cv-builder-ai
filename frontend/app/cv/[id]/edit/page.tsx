@@ -45,6 +45,7 @@ import { EditorAiSidePanel } from '@/components/cv/editor/EditorAiSidePanel';
 import { EditorInlineParseWizard } from '@/components/cv/editor/EditorInlineParseWizard';
 import type { EditorPanelMode } from '@/components/cv/editor/EditorModeSwitch';
 import { EditorAiPanel, AI_ACTIONS, type AiActionId } from '@/components/cv/editor/EditorAiPanel';
+import { EditorVersionPanel } from '@/components/cv/editor/EditorVersionPanel';
 import { SectionPanel } from '@/components/cv/editor/SectionPanel';
 import { SortableList } from '@/components/cv/editor/SortableList';
 import type { EditorSectionId } from '@/components/cv/editor/EditorSidebar';
@@ -102,6 +103,51 @@ function Field({
 const inputCls =
   'w-full border border-purple-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200';
 
+type EditorUndoSnapshot = {
+  cvData: CVData;
+  title: string;
+  templateId: string | null;
+  skillsText: string;
+  languagesText: string;
+  technologiesText: string;
+  certificationsText: string;
+  projectsText: string;
+};
+
+function isEditorSectionEnabled(sectionKey: string, data: CVData): boolean {
+  if (sectionKey === 'personal' || sectionKey === 'settings') return true;
+  const sections = data.meta?.sections;
+  if (!sections?.length) return true;
+  return sections.includes(sectionKey);
+}
+
+function captureEditorSnapshot(
+  cvData: CVData,
+  title: string,
+  templateId: string | null,
+  texts: {
+    skillsText: string;
+    languagesText: string;
+    technologiesText: string;
+    certificationsText: string;
+    projectsText: string;
+  },
+): EditorUndoSnapshot {
+  return {
+    cvData: {
+      ...cvData,
+      skills: parseSkillsInput(texts.skillsText),
+      languages: parseLanguagesInput(texts.languagesText),
+      technologies: parseTechnologiesInput(texts.technologiesText),
+      certifications: parseCertificationsInput(texts.certificationsText),
+      projects: parseProjectsInput(texts.projectsText),
+    },
+    title,
+    templateId,
+    ...texts,
+  };
+}
+
 function clearParseReviewSession(cvId: string) {
   sessionStorage.removeItem(`parseMeta-${cvId}`);
   sessionStorage.removeItem(`parsePending-${cvId}`);
@@ -152,7 +198,7 @@ function CVEditorPage() {
   const [error, setError] = useState<string | null>(null);
   const [enhancing, setEnhancing] = useState(false);
   const [enhancePreview, setEnhancePreview] = useState<EnhanceResult | null>(null);
-  const [undoSnapshot, setUndoSnapshot] = useState<CVData | null>(null);
+  const [undoSnapshot, setUndoSnapshot] = useState<EditorUndoSnapshot | null>(null);
   const [aiActionId, setAiActionId] = useState<AiActionId | null>(null);
   const [activeSection, setActiveSection] = useState<EditorSectionId>('personal');
   const [editorMode, setEditorMode] = useState<EditorPanelMode>('manual');
@@ -346,9 +392,18 @@ function CVEditorPage() {
     setError(null);
     try {
       await save();
-      setUndoSnapshot(buildDataToSave());
+      setUndoSnapshot(
+        captureEditorSnapshot(cvData, title, templateId, {
+          skillsText,
+          languagesText,
+          technologiesText,
+          certificationsText,
+          projectsText,
+        }),
+      );
       const result = await enhanceCV(id, action.sections, action.tone);
       setEnhancePreview(result);
+      toast.success(result.message || 'AI suggestions ready — click Apply to update your CV');
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Enhance failed');
     } finally {
@@ -380,12 +435,14 @@ function CVEditorPage() {
 
   const undoEnhance = () => {
     if (!undoSnapshot) return;
-    setCvData(undoSnapshot);
-    setSkillsText(skillsToInput(undoSnapshot.skills));
-    setLanguagesText(languagesToInput(undoSnapshot.languages));
-    setTechnologiesText(technologiesToInput(undoSnapshot.technologies));
-    setCertificationsText(certificationsToInput(undoSnapshot.certifications));
-    setProjectsText(projectsToInput(undoSnapshot.projects));
+    setTitle(undoSnapshot.title);
+    setTemplateId(undoSnapshot.templateId);
+    setCvData(undoSnapshot.cvData);
+    setSkillsText(undoSnapshot.skillsText);
+    setLanguagesText(undoSnapshot.languagesText);
+    setTechnologiesText(undoSnapshot.technologiesText);
+    setCertificationsText(undoSnapshot.certificationsText);
+    setProjectsText(undoSnapshot.projectsText);
     setUndoSnapshot(null);
     setEnhancePreview(null);
     setMessage('Changes reverted');
@@ -585,7 +642,13 @@ function CVEditorPage() {
         : [...current, key];
       return { ...prev, meta: { ...prev.meta, sections: next } };
     });
+    if (activeSection === key) {
+      setActiveSection('settings');
+    }
   };
+
+  const enabledSections = cvData.meta.sections ?? [...DEFAULT_SECTIONS];
+  const sectionVisible = (key: string) => isEditorSectionEnabled(key, cvData);
 
   const selectedTemplate = templates.find((t) => t.id === templateId);
 
@@ -717,6 +780,7 @@ function CVEditorPage() {
         hideModeSwitch={parseWizardOpen}
         sidebarActive={activeSection}
         onSectionSelect={setActiveSection}
+        enabledSections={enabledSections}
         preview={
           <CVLivePreview
             cvId={id}
@@ -784,6 +848,10 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
+          <div className="px-1 pb-2">
+            <EditorVersionPanel cvId={id} />
+          </div>
+
           <SectionPanel sectionId="personal">
           <Section title="Personal Info">
             <Field label="Full name">
@@ -849,7 +917,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="summary">
+          <SectionPanel sectionId="summary" visible={sectionVisible('summary')}>
           <Section title="Summary / Profil">
             <RichTextSummary
               value={cvData.summary ?? ''}
@@ -859,7 +927,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="experience">
+          <SectionPanel sectionId="experience" visible={sectionVisible('experience')}>
           <Section title="Experience">
             {cvData.experience.length === 0 && (
               <p className="text-xs text-gray-400">No experience yet — add your first role.</p>
@@ -933,7 +1001,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="education">
+          <SectionPanel sectionId="education" visible={sectionVisible('education')}>
           <Section title="Education">
             {cvData.education.length === 0 && (
               <p className="text-xs text-gray-400">No education entries yet.</p>
@@ -992,7 +1060,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="skills">
+          <SectionPanel sectionId="skills" visible={sectionVisible('skills')}>
           <Section title="Skills">
             <textarea
               value={skillsText}
@@ -1005,7 +1073,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="languages">
+          <SectionPanel sectionId="languages" visible={sectionVisible('languages')}>
           <Section title="Languages">
             <textarea
               value={languagesText}
@@ -1018,7 +1086,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="technologies">
+          <SectionPanel sectionId="technologies" visible={sectionVisible('technologies')}>
           <Section title="Technologies">
             <textarea
               value={technologiesText}
@@ -1031,7 +1099,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="certifications">
+          <SectionPanel sectionId="certifications" visible={sectionVisible('certifications')}>
           <Section title="Certifications" defaultOpen={false}>
             <textarea
               value={certificationsText}
@@ -1044,7 +1112,7 @@ function CVEditorPage() {
           </Section>
           </SectionPanel>
 
-          <SectionPanel sectionId="projects">
+          <SectionPanel sectionId="projects" visible={sectionVisible('projects')}>
           <Section title="Projects" defaultOpen={false}>
             <textarea
               value={projectsText}

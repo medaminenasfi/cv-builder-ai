@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import {
   LayoutDashboard,
   Briefcase,
@@ -20,13 +21,14 @@ interface NavItem {
   tooltip: string
   href: string
   id: string
+  labelKey: 'dashboard' | 'templates' | 'jobMatch' | 'settings'
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard', icon: <LayoutDashboard size={20} />, tooltip: 'Dashboard', href: '/dashboard' },
-  { id: 'templates', icon: <Palette size={20} />, tooltip: 'Templates', href: '/templates' },
-  { id: 'jobs', icon: <Briefcase size={20} />, tooltip: 'Job Match', href: '/job-match' },
-  { id: 'settings', icon: <Settings size={20} />, tooltip: 'Settings', href: '/settings' },
+  { id: 'dashboard', icon: <LayoutDashboard size={20} />, tooltip: 'Dashboard', href: '/dashboard', labelKey: 'dashboard' },
+  { id: 'templates', icon: <Palette size={20} />, tooltip: 'Templates', href: '/templates', labelKey: 'templates' },
+  { id: 'jobs', icon: <Briefcase size={20} />, tooltip: 'Job Match', href: '/job-match', labelKey: 'jobMatch' },
+  { id: 'settings', icon: <Settings size={20} />, tooltip: 'Settings', href: '/settings', labelKey: 'settings' },
 ]
 
 const ACTIVE_GRADIENT = 'linear-gradient(135deg, #7c3aed, #a855f7)'
@@ -40,10 +42,12 @@ function NavLink({
   item,
   activeId,
   layout,
+  label,
 }: {
   item: NavItem
   activeId: string
   layout: 'sidebar' | 'bottom'
+  label: string
 }) {
   const isActive = activeId === item.id
 
@@ -51,7 +55,7 @@ function NavLink({
     return (
       <Link
         href={item.href}
-        aria-label={item.tooltip}
+        aria-label={label}
         className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2"
       >
         <span
@@ -70,7 +74,7 @@ function NavLink({
     <div className="relative group">
       <Link
         href={item.href}
-        aria-label={item.tooltip}
+        aria-label={label}
         className={`w-10 h-10 rounded-xl flex items-center justify-center ${
           isActive
             ? 'text-white'
@@ -81,13 +85,14 @@ function NavLink({
         {item.icon}
       </Link>
       <div className="absolute left-16 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-100 pointer-events-none z-50">
-        {item.tooltip}
+        {label}
       </div>
     </div>
   )
 }
 
 function DesktopSidebar({ activeId }: { activeId: string }) {
+  const t = useTranslations('nav')
   const { user, logout } = useAuth()
   const [cvCount, setCvCount] = useState(0)
 
@@ -113,7 +118,7 @@ function DesktopSidebar({ activeId }: { activeId: string }) {
 
       <nav className="flex flex-col items-center gap-2 flex-1 pt-2">
         {NAV_ITEMS.map((item) => (
-          <NavLink key={item.id} item={item} activeId={activeId} layout="sidebar" />
+          <NavLink key={item.id} item={item} activeId={activeId} layout="sidebar" label={t(item.labelKey)} />
         ))}
       </nav>
 
@@ -141,13 +146,13 @@ function DesktopSidebar({ activeId }: { activeId: string }) {
           <button
             type="button"
             onClick={() => logout()}
-            aria-label="Logout"
+            aria-label={t('logout')}
             className="w-10 h-10 rounded-xl flex items-center justify-center text-purple-300 hover:bg-purple-50 hover:text-purple-500 bg-transparent"
           >
             <LogOut size={18} />
           </button>
           <div className="absolute left-16 top-1/2 -translate-y-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-100 pointer-events-none z-50">
-            Logout
+            {t('logout')}
           </div>
         </div>
       </div>
@@ -156,12 +161,13 @@ function DesktopSidebar({ activeId }: { activeId: string }) {
 }
 
 function MobileBottomNav({ activeId }: { activeId: string }) {
+  const t = useTranslations('nav')
   const { logout } = useAuth()
 
   return (
     <nav className="flex sm:hidden fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-purple-100 z-40 items-stretch">
       {NAV_ITEMS.map((item) => (
-        <NavLink key={item.id} item={item} activeId={activeId} layout="bottom" />
+        <NavLink key={item.id} item={item} activeId={activeId} layout="bottom" label={t(item.labelKey)} />
       ))}
       <button
         type="button"

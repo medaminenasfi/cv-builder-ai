@@ -78,9 +78,14 @@ export class JobsController {
   @Post(':id/jobs/interview-questions')
   interview(
     @Param('id') id: string,
-    @Body() body: { jobDescription: string },
+    @Body() body: { jobDescription: string; jobTitle?: string },
     @CurrentUser() user: UserEntity,
   ) {
-    return this.jobsService.interviewQuestions(id, user.id, body.jobDescription);
+    return this.jobsService.interviewQuestions(
+      id,
+      user.id,
+      body.jobDescription,
+      body.jobTitle,
+    );
   }
 }

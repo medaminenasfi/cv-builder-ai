@@ -1,7 +1,7 @@
 'use client'
 
 import { AppShell } from '@/components/layout/AppShell'
-import { importCVFile } from '@/lib/cvs-api'
+import { importCVFile, importCVFileAsync, getParseJob } from '@/lib/cvs-api'
 import { ApiError } from '@/lib/api'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
@@ -20,12 +20,41 @@ export default function NewCVPage() {
 
   const handleImportClick = () => fileRef.current?.click()
 
+  const pollParseJob = async (jobId: string, cvIdHint?: string) => {
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const job = await getParseJob(jobId)
+      if (job.status === 'completed' && job.result) {
+        const cvId = (job.result as { cvId?: string }).cvId ?? cvIdHint
+        if (cvId) {
+          const meta = (job.result as { parseMeta?: unknown }).parseMeta
+          if (meta) sessionStorage.setItem(`parseMeta-${cvId}`, JSON.stringify(meta))
+          sessionStorage.setItem(`parsePending-${cvId}`, '1')
+          router.push(`/cv/${cvId}/edit?parse=1`)
+          return
+        }
+      }
+      if (job.status === 'failed') {
+        throw new ApiError(job.error ?? 'Parse failed', 422)
+      }
+      setImportStep(`Processing… (${i + 1}/60)`)
+    }
+    throw new ApiError('Parse timed out — try a smaller file or sync import', 408)
+  }
+
   const handleFile = async (file: File | undefined) => {
     if (!file) return
     setImporting(true)
     setImportStep('Uploading file…')
     setError(null)
     try {
+      const useAsync = file.size > 1_500_000
+      if (useAsync) {
+        setImportStep('Queued for background parsing…')
+        const { jobId } = await importCVFileAsync(file)
+        await pollParseJob(jobId)
+        return
+      }
       setImportStep('Extracting text…')
       await new Promise((r) => setTimeout(r, 300))
       setImportStep('AI parsing sections…')

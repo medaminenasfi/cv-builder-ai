@@ -15,12 +15,18 @@ export class SharingService {
     private readonly shareLinksRepository: Repository<ShareLinkEntity>,
   ) {}
 
-  async createLink(cvId: string, userId: string) {
+  async createLink(cvId: string, userId: string, displayName?: string) {
     await this.cvsService.findById(cvId, userId);
     const token = randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await this.shareLinksRepository.save(
-      this.shareLinksRepository.create({ token, cvId, expiresAt, viewCount: 0 }),
+      this.shareLinksRepository.create({
+        token,
+        cvId,
+        expiresAt,
+        viewCount: 0,
+        displayName: displayName?.trim() || null,
+      }),
     );
     return { token, url: `/cv/share/${token}`, expiresInDays: 7 };
   }
@@ -42,7 +48,8 @@ export class SharingService {
       cvId: link.cvId,
       title: rendered.title,
       locale: rendered.locale,
-      fullName: rendered.fullName,
+      fullName: link.displayName?.trim() || rendered.fullName,
+      displayName: link.displayName,
       pdfBase64: rendered.pdf.toString('base64'),
       data: version?.data ?? {},
       expiresAt: link.expiresAt.toISOString(),

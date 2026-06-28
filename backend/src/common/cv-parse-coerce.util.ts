@@ -1,5 +1,6 @@
 import { newCvId, normalizeCVData, type CVData } from './cv-schema';
 import { parseAiJson } from '../modules/ai/ai-json.util';
+import { dedupeExperienceList } from './experience-dedupe.util';
 
 type LooseRecord = Record<string, unknown>;
 
@@ -396,7 +397,7 @@ export function coerceAiParseResult(raw: unknown): Partial<CVData> {
   return {
     personal,
     summary: summary || undefined,
-    experience: experienceRaw.map(coerceExperienceEntry),
+    experience: dedupeExperienceList(experienceRaw.map(coerceExperienceEntry)),
     education: educationRaw.map(coerceEducationEntry),
     skills: coerceSkills(
       asArray(skillsRaw).length ? skillsRaw : o.competences ?? o.competencies,

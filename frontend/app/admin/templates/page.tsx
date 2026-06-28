@@ -17,6 +17,7 @@ import {
   type Template,
 } from '@/lib/templates-api'
 import { ApiError } from '@/lib/api'
+import { pdfBlobToPageImageUrl } from '@/lib/pdf-preview-image'
 
 const EMPTY_FORM = {
   name: '',
@@ -151,7 +152,7 @@ export default function AdminTemplatesPage() {
     try {
       const blob = await compileLatex(form.latexSource)
       if (compileUrl) URL.revokeObjectURL(compileUrl)
-      setCompileUrl(URL.createObjectURL(blob))
+      setCompileUrl(await pdfBlobToPageImageUrl(blob))
     } catch (e) {
       setCompileLog(extractCompileLog(e))
       setError(extractCompileLog(e) ?? 'Compile failed')
@@ -200,7 +201,7 @@ export default function AdminTemplatesPage() {
     try {
       const blob = await previewTemplatePdf(id, rtl)
       if (previewUrl) URL.revokeObjectURL(previewUrl)
-      setPreviewUrl(URL.createObjectURL(blob))
+      setPreviewUrl(await pdfBlobToPageImageUrl(blob))
     } catch (e) {
       setPreviewId(null)
       setError(extractCompileLog(e) ?? 'Preview failed')
@@ -374,8 +375,14 @@ export default function AdminTemplatesPage() {
                 />
 
                 {compileUrl && (
-                  <div className="border rounded-lg overflow-hidden h-96">
-                    <iframe title="Compile preview" src={compileUrl} className="w-full h-full border-0" />
+                  <div className="border rounded-lg overflow-hidden h-96 bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={compileUrl}
+                      alt="Compile preview"
+                      draggable={false}
+                      className="w-full h-full object-contain object-top pointer-events-none select-none"
+                    />
                   </div>
                 )}
 
@@ -433,7 +440,13 @@ export default function AdminTemplatesPage() {
                 <X size={18} />
               </button>
             </div>
-            <iframe title="Template preview" src={previewUrl} className="flex-1 w-full border-0" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt="Template preview"
+              draggable={false}
+              className="flex-1 w-full object-contain object-top bg-white min-h-0 pointer-events-none select-none"
+            />
           </div>
         </div>
       )}

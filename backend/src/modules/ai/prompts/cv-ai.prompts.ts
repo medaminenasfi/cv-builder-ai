@@ -21,6 +21,7 @@ Rules:
 - languages: spoken languages with level (e.g. Français — Courant, English — Fluent)
 - technologies: frameworks, tools, languages (React, Docker, Python) — NOT spoken languages
 - Put each bullet under a job into experience[].bullets
+- ONE entry per job — never duplicate the same position/company/dates
 - Copy dates and company names exactly; use "" if missing, never invent employers
 - Generate short unique ids for array items
 - Supports English, French, and Arabic resumes
@@ -94,8 +95,19 @@ SECTIONS:${sections.join(',')}
 JSON only.`;
 }
 
-export function cvEnhanceSystemPrompt(tone: string): string {
-  return `You improve CV resume content for clarity and impact. Tone: ${tone}. Return JSON with the full updated CV data object (same schema as input). Do not invent fake employers. Quantify achievements where possible. No markdown fences.`;
+export function cvEnhanceSystemPrompt(tone: string, sections: string[]): string {
+  const keys = sections.includes('skills')
+    ? [...new Set([...sections, 'technologies'])]
+    : sections;
+  return `You improve CV resume content. Tone: ${tone}.
+Return ONLY valid JSON (no markdown) with ONLY these top-level keys: ${keys.join(', ')}.
+Rules:
+- summary: single string field
+- experience: array of { id, company, role, startDate, endDate, bullets[] } — keep the same ids and employers, improve wording and add metrics where possible
+- skills / technologies: arrays of { id, name }
+- Do NOT invent fake jobs or employers
+- Quantify achievements with numbers when reasonable
+- Write in the same language as the input CV`;
 }
 
 export function cvEnhanceUserMessage(
@@ -103,12 +115,12 @@ export function cvEnhanceUserMessage(
   sections: string[],
   tone: string,
 ): string {
-  return `Improve these sections: ${sections.join(', ')}. Tone: ${tone}.
+  return `Improve ONLY these sections: ${sections.join(', ')}. Tone: ${tone}.
 
-CV JSON:
-${cvJson.slice(0, 8000)}
+Input JSON (partial CV):
+${cvJson}
 
-Return the complete updated CV JSON object.`;
+Return JSON with only the improved section fields listed above.`;
 }
 
 export function cvCoverLetterSystemPrompt(locale: string): string {
@@ -123,4 +135,22 @@ JOB:
 ${jobDescription.slice(0, 4000)}
 
 Write the cover letter.`;
+}
+
+export function cvInterviewSystemPrompt(): string {
+  return `You are an interview coach. Return ONLY valid JSON (no markdown):
+{ "questions": [ { "q": "question text", "hint": "short prep tip" } ] }
+Generate 6 tailored questions based on the CV and job description. Mix behavioral and role-specific questions.`;
+}
+
+export function cvInterviewUserMessage(cvJson: string, jobDescription: string, jobTitle?: string): string {
+  return `Role: ${jobTitle ?? 'Not specified'}
+
+CV:
+${cvJson.slice(0, 5000)}
+
+Job description:
+${jobDescription.slice(0, 3000)}
+
+Return 6 interview questions with hints.`;
 }

@@ -1,9 +1,37 @@
 {
-  "app": {
-    "title": "ResumeAI",
-    "dashboard": "My Resumes",
+  "nav": {
+    "dashboard": "Dashboard",
     "templates": "Templates",
-    "login": "Sign in",
-    "register": "Create account"
+    "jobMatch": "Job Match",
+    "settings": "Settings",
+    "logout": "Log out"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "error": "Something went wrong",
+    "apply": "Apply",
+    "discard": "Discard"
+  },
+  "dashboard": {
+    "title": "My Resumes",
+    "newResume": "New Resume",
+    "empty": "No resumes yet",
+    "browseTemplates": "Browse Templates"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Account",
+    "plan": "Plan",
+    "language": "Language",
+    "aiUsage": "AI usage today",
+    "upgrade": "Upgrade to Pro",
+    "displayName": "Display name on shares"
+  },
+  "editor": {
+    "manual": "Manual",
+    "aiAssistant": "AI Assistant",
+    "versionHistory": "Version history"
   }
 }

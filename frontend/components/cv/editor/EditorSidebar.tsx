@@ -31,12 +31,22 @@ export type EditorSectionId = (typeof EDITOR_SECTIONS)[number]['id']
 interface EditorSidebarProps {
   active: EditorSectionId
   onSelect: (id: EditorSectionId) => void
+  /** When set, hide nav items for disabled CV sections (Settings). */
+  enabledSections?: string[]
 }
 
-export function EditorSidebar({ active, onSelect }: EditorSidebarProps) {
+const ALWAYS_VISIBLE: EditorSectionId[] = ['personal', 'settings']
+
+function isNavSectionVisible(id: EditorSectionId, enabledSections?: string[]): boolean {
+  if (ALWAYS_VISIBLE.includes(id)) return true
+  if (!enabledSections?.length) return true
+  return enabledSections.includes(id)
+}
+
+export function EditorSidebar({ active, onSelect, enabledSections }: EditorSidebarProps) {
   return (
     <nav className="flex flex-wrap lg:flex-col gap-1 lg:gap-0.5 mb-2 lg:mb-4 lg:pr-0 lg:border-r-0">
-      {EDITOR_SECTIONS.map(({ id, label, icon: Icon }) => (
+      {EDITOR_SECTIONS.filter(({ id }) => isNavSectionVisible(id, enabledSections)).map(({ id, label, icon: Icon }) => (
         <button
           key={id}
           type="button"

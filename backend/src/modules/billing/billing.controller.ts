@@ -1,29 +1,27 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
-import { UsersService } from '../users/users.service';
-import { UserPlan } from '../../common/enums/user.enum';
+import { Body, Controller, Headers, Post, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../../common/guards/auth.guards';
+import { UserEntity } from '../users/entities/user.entity';
+import { BillingService } from './billing.service';
 
 @ApiTags('billing')
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly billingService: BillingService) {}
 
   @Post('webhook')
   webhook(
     @Headers('stripe-signature') _sig: string,
-    @Body() body: { type: string; data: { object: { customer_email?: string } } },
+    @Body() body: { type: string; data: { object: { client_reference_id?: string; customer_email?: string } } },
   ) {
-    if (body.type === 'checkout.session.completed' && body.data?.object?.customer_email) {
-      return { received: true, note: 'Upgrade user plan via admin or implement email lookup' };
-    }
-    return { received: true };
+    return this.billingService.handleWebhook(body);
   }
 
   @Post('checkout')
-  createCheckout() {
-    return {
-      url: 'https://checkout.stripe.com/pay/cs_test_placeholder',
-      message: 'Configure STRIPE_SECRET_KEY for production checkout',
-    };
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  createCheckout(@CurrentUser() user: UserEntity) {
+    return this.billingService.createCheckoutSession(user.id, user.email);
   }
 }

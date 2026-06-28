@@ -27,6 +27,8 @@ import {
   cvCoverLetterUserMessage,
   cvKeywordEnhanceSystemPrompt,
   cvKeywordEnhanceUserMessage,
+  cvInterviewSystemPrompt,
+  cvInterviewUserMessage,
 } from '../ai/prompts/cv-ai.prompts';
 import { OpenRouterService, isOpenRouterCreditsError } from '../ai/openrouter.service';
 import { AiUsageService } from '../usage/ai-usage.service';
@@ -423,13 +425,40 @@ export class JobsService {
     });
   }
 
-  interviewQuestions(_cvId: string, _userId: string, _jobDescription: string) {
+  async interviewQuestions(cvId: string, userId: string, jobDescription: string, jobTitle?: string) {
+    await this.cvsService.findById(cvId, userId);
+    const version = await this.cvsService.getLatestVersion(cvId);
+    if (!version) throw new NotFoundException('CV has no data');
+
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new NotFoundException('User not found');
+
+    const cvData = normalizeCVData(version.data);
+    const cvJson = JSON.stringify(compactCvForAts(cvData));
+
+    try {
+      await this.aiUsage.assertWithinQuota(userId, user.plan);
+      const raw = await this.openRouter.chat(
+        cvInterviewSystemPrompt(),
+        cvInterviewUserMessage(cvJson, jobDescription, jobTitle),
+        this.openRouter.getEnhanceMaxTokens(),
+      );
+      await this.aiUsage.recordCall(userId);
+      const parsed = parseAiJson<{ questions: Array<{ q: string; hint: string }> }>(raw);
+      if (Array.isArray(parsed.questions) && parsed.questions.length) {
+        return { questions: parsed.questions.slice(0, 8) };
+      }
+    } catch (err) {
+      this.logger.warn(`Interview AI fallback: ${String(err)}`);
+    }
+
     return {
       questions: [
         { q: 'Tell me about a project relevant to this role.', hint: 'Use STAR method' },
         { q: 'How do you handle tight deadlines?', hint: 'Give a concrete example' },
-        { q: 'Why this company?', hint: 'Research the company mission' },
+        { q: 'Why are you interested in this position?', hint: 'Research the company mission' },
         { q: 'Describe a technical challenge you solved.', hint: 'Focus on impact' },
+        { q: 'How do you prioritize competing tasks?', hint: 'Show structured thinking' },
         { q: 'Where do you see yourself in 3 years?', hint: 'Align with the role' },
       ],
     };
